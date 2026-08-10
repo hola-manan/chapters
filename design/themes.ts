@@ -10,6 +10,7 @@ export interface Theme {
   surface: {
     page: string;
     raised: string;
+    floating: string;
     sunken: string;
   };
   text: {
@@ -27,6 +28,9 @@ export interface Theme {
     pressed: string;
     tint: string;
   };
+  shadow: {
+    color: string;
+  };
   state: {
     pressOverlay: string;
   };
@@ -36,6 +40,7 @@ export const lightTheme: Theme = {
   surface: {
     page: neutrals.paper,
     raised: pure.white,
+    floating: pure.white,
     sunken: neutrals[100],
   },
   text: {
@@ -53,6 +58,9 @@ export const lightTheme: Theme = {
     pressed: teal.pressed,
     tint: teal.tint,
   },
+  shadow: {
+    color: forest[900],
+  },
   state: {
     pressOverlay: overlay.lightPress,
   },
@@ -64,6 +72,7 @@ export const darkTheme: Theme = {
   surface: {
     page: darkGround[900],
     raised: darkGround[800],
+    floating: darkGround[700],
     sunken: darkGround.sunken,
   },
   text: {
@@ -80,6 +89,9 @@ export const darkTheme: Theme = {
     base: teal.light,
     pressed: teal.base,
     tint: overlay.darkAccentTint,
+  },
+  shadow: {
+    color: pure.transparent,
   },
   state: {
     pressOverlay: overlay.darkPress,

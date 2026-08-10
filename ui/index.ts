@@ -5,4 +5,5 @@ export * from './primitives/Divider';
 export * from './primitives/stackUtils';
 export * from './primitives/VStack';
 export * from './primitives/HStack';
+export * from './primitives/Surface';
 

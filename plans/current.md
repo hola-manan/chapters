@@ -1,116 +1,105 @@
-# Component pass 2 — VStack, HStack (and a provisional Divider)
+# Component pass 3 — Surface
 
 ## Goal
 
-Build the layout primitives that own spacing. `Text` and `ReadingText` deliberately refuse to set
-their own margins, so these are what make correct layout possible at all.
+Build the container primitive. `Stack` owns the space *between* children; `Surface` owns the space
+*around* content, plus background, radius and border. It is the only component permitted to paint a
+background colour.
 
 Read `GEMINI.md` first. `ui/` may import from `design/` only, may never hardcode a colour, size,
-radius or duration, and — following the precedent set by `Text` — **must not accept a `style` prop
-or spread `...rest`**.
+radius or duration, and — following `Text` and the stacks — **must not accept a `style` prop or
+spread `...rest`**.
 
 ## Decisions already made by the human — transcribe, do not reinterpret
 
-1. **Two components, `VStack` and `HStack`.** Not one component with a `direction` prop.
-2. **Gap is a closed named vocabulary**, e.g. `gap="md"`. An arbitrary gap must be unrepresentable.
-3. **`dividers` is a boolean prop** that inserts a separator between children and never after the
-   last one.
+1. **Surface owns background, padding, radius and border.** It is the container primitive; a call
+   site should not need a bare `View`.
+2. **Depth is flat by default.** Elevation 0 and 1 use colour and hairline only, in both themes.
+   Only elevation 2 — floating layers such as sheets and toasts — gets a shadow in the light theme,
+   and extra lightness in the dark theme where shadows are invisible.
+3. **Elevation is numeric**: `elevation={0 | 1 | 2}`. `sunken` is **not** part of the ladder; it is
+   a separate boolean, because a numeric scale handles a recessed surface awkwardly.
 
-## 0. First, widen the space vocabulary — `design/tokens/space.ts`
+## 0. Tier-1 additions these decisions require
 
-The semantic aliases currently stop at `xxl: 24` and then degrade to `step32`, `step40`, `step48`,
-`step64`, so screen-level spacing has no real name. Replace the alias block with a scale that spans
-the whole useful range:
+Both are consequences of the decisions above, not new design choices.
 
-```
-xxs 2 · xs 4 · sm 8 · md 12 · lg 16 · xl 24 · xxl 32 · xxxl 48
-```
+**`design/tokens/color.ts` and `design/themes.ts`:**
 
-Keep the numeric keys (`space[16]`) exactly as they are — only the alias block changes. Drop the
-`step*` aliases. Update the one or two existing usages if any break.
+- Add `surface.floating` to the `Theme` type and both themes. In **light** it can equal
+  `surface.raised` (white), since the shadow does the separating. In **dark** it must be
+  *lighter* than `surface.raised`, because that is the only way elevation reads on a dark ground.
+  A `darkGround[700]`-style step already exists in the palette for this.
+- Add `shadow.color` to the `Theme` type and both themes. In **light**, tint it toward the forest
+  ink rather than using neutral black — a neutral shadow over the cool paper reads muddy. In
+  **dark**, set it fully transparent, since the dark theme separates by lightness and must never
+  paint a shadow.
 
-## 1. Provisional `ui/primitives/Divider.tsx`
+Add the primitives to `tokens/color.ts` first and reference them from `themes.ts` — `themes.ts`
+must remain free of hex literals, and there is a test asserting exactly that.
 
-`Stack`'s `dividers` prop needs something to insert, but `Divider`'s real design — inset, weight,
-how it governs list rhythm — is a later pass and is **not** being decided here.
-
-Build the simplest honest version: a full-bleed hairline using `StyleSheet.hairlineWidth` and
-`theme.border.subtle`, with no inset and no props beyond `testID`. Add a comment stating plainly
-that this is provisional and that inset and weight are decided in its own pass. Do not invent an
-inset API now.
-
-## 2. `ui/primitives/VStack.tsx` and `ui/primitives/HStack.tsx`
-
-Shared prop shape:
+## 1. `ui/primitives/Surface.tsx`
 
 ```ts
-type StackGap = 'none' | 'xxs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'xxxl';
+type SurfacePadding = 'none' | 'xxs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'xxxl';
 
-type CommonStackProps = {
-  gap?: StackGap;              // default 'none'
-  align?: ...;                 // cross-axis
-  justify?: 'start' | 'center' | 'end' | 'between';  // main-axis
-  dividers?: boolean;
-  flex?: boolean;              // applies flex: 1
+type SurfaceProps = {
+  elevation?: 0 | 1 | 2;        // 0 page · 1 raised · 2 floating
+  sunken?: boolean;             // deliberately outside the ladder
+  padding?: SurfacePadding;     // all sides
+  paddingX?: SurfacePadding;    // overrides padding horizontally
+  paddingY?: SurfacePadding;    // overrides padding vertically
+  radius?: 'none' | 'sm' | 'md' | 'lg' | 'pill';
+  border?: boolean;             // hairline in theme.border.subtle
+  flex?: boolean;
   children: React.ReactNode;
   testID?: string;
 };
 ```
 
-The two differ in their defaults and in their cross-axis vocabulary, which is the whole reason the
-human chose two components rather than one:
+- Defaults: `elevation={0}`, `padding='none'`, `radius='none'`, `border={false}`.
+- Reuse the padding vocabulary from the stacks — import the existing `StackGap` type or extract the
+  shared union into one place. Do **not** define a second, divergent spacing vocabulary.
+- Background: `elevation` 0 → `surface.page`, 1 → `surface.raised`, 2 → `surface.floating`.
+  `sunken` overrides to `surface.sunken` regardless of elevation.
+- Shadow **only** at `elevation={2}`, built from the `shadow` tokens in `design/` plus
+  `theme.shadow.color`. Set the iOS shadow properties and the Android `elevation` property so it is
+  not silently iOS-only. Because the dark theme's `shadow.color` is transparent, the same code path
+  correctly produces no visible shadow in dark — do not branch on theme name.
+- `radius` maps through the radius tokens. `border` draws `StyleSheet.hairlineWidth` in
+  `theme.border.subtle`.
+- No `style` prop, no `...rest` spread.
 
-- **`VStack`** — `flexDirection: 'column'`. `align?: 'stretch' | 'start' | 'center' | 'end'`,
-  defaulting to **`'stretch'`** so children fill the width, which is what a vertical list of rows
-  and paragraphs wants.
-- **`HStack`** — `flexDirection: 'row'`. `align?: 'center' | 'start' | 'end' | 'baseline'`,
-  defaulting to **`'center'`**, which is what a row of label-plus-metadata wants. `HStack` also
-  takes `wrap?: boolean`.
+## 2. Export from `ui/index.ts`
 
-Implementation notes:
+Add `Surface` and its prop types to the barrel.
 
-- Use the real flexbox `gap` property (supported in React Native 0.81), **not** injected margins on
-  children. Injected margins leave phantom space when a child renders `null`, which is a bug you do
-  not want to design in.
-- `gap` maps through `space` from `design/tokens/space`. Never inline a number.
-- When `dividers` is true, map over `React.Children.toArray(children)`, filter out null/false
-  entries **before** interleaving, and place a `<Divider />` between each surviving pair — never
-  after the last. Filtering first is what stops a conditionally-hidden row leaving a stray
-  separator behind.
-- `align`/`justify` map short names onto flexbox values (`start` → `flex-start`, `between` →
-  `space-between`). Do not expose raw flexbox strings; the short vocabulary is the API.
-- Put the shared logic in one internal module both components use. Do not duplicate the gap and
-  divider logic twice.
+## 3. Extend the gallery
 
-## 3. Export from `ui/index.ts`
+Add a Surface section showing:
 
-Add `VStack`, `HStack`, `Divider` and their prop types to the barrel.
-
-## 4. Extend the gallery
-
-Add sections to `app/_dev/gallery.tsx` demonstrating:
-
-- Every `gap` step in a `VStack`, labelled, so the rhythm of the scale is visible as a ladder.
-- An `HStack` showing each `align` value, including `baseline` with two different text sizes —
-  baseline alignment is the one people get wrong and the one that matters for label-plus-value rows.
-- `justify="between"` in an `HStack`: a title on the left, metadata on the right, which is the
-  chapter-row pattern.
-- A `VStack` with `dividers`, containing at least one conditionally-hidden child, proving no stray
-  separator appears.
-
-Keep using `Text` for all labels. The gallery may use `View` for its own scaffolding only.
+- All three elevations side by side on the page background, labelled, so the flat-versus-floating
+  distinction is visible. Include a `sunken` example.
+- The same set with the theme override switched to dark — the point being that elevation 2 still
+  reads as raised there, via lightness rather than shadow. This is the specific thing to verify by
+  eye.
+- The padding scale: a few `Surface`es with different `padding` values and a visible border, so the
+  padding ladder can be judged the way the gap ladder was.
+- One realistic composition: a `Surface` with `elevation={1}`, `radius='md'`, `padding='lg'`
+  containing a `VStack` with a title `Text` and a secondary `Text` — the shape a book card will
+  take, so the primitives can be seen working together.
 
 ## Explicitly not in this phase
 
-- No `Surface`, `Pressable`, `Button` or any other component.
-- Do not decide `Divider`'s inset or weight — that is its own pass.
-- Do not restyle `app/index.tsx`, the contents screen or the reader. They stay ugly.
-- Do not change any colour, type or motion token.
+- No `Pressable`, `Button`, `Icon` or any other component.
+- Do not decide `Divider`'s inset or weight — still its own pass.
+- Do not restyle `app/index.tsx`, the contents screen or the reader.
+- Do not change any type or motion token, or any decided colour value.
 
 ## Done means
 
-`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, including the existing `ui/` hex and
-import guards. The three real screens are unchanged. The gallery shows the new sections.
+`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, including the `ui/` hex-literal guard
+and the `themes.ts` no-hex guard. The three real screens are unchanged.
 
 ## Reminders
 

@@ -6,6 +6,7 @@ import { listBooks } from '../../storage/index.ts';
 import {
   HStack,
   ReadingText,
+  Surface,
   Text,
   ThemeProvider,
   useTheme,
@@ -285,6 +286,146 @@ function GalleryContent({
                 </Text>
               </VStack>
             </View>
+          </VStack>
+        </Section>
+
+        {/* Section 9: Surface Primitives */}
+        <Section title="Surface Primitives & Elevations" borderBottomColor={theme.border.subtle}>
+          <VStack gap="xl">
+            {/* Elevations in current theme */}
+            <VStack gap="sm">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                ELEVATION LADDER (CURRENT THEME)
+              </Text>
+              <VStack gap="md">
+                <Surface elevation={0} padding="md" radius="md" border>
+                  <VStack gap="xs">
+                    <Text variant="footnote" weight="semibold">
+                      Elevation 0 (Page Ground)
+                    </Text>
+                    <Text variant="caption" tone="secondary">
+                      Flat base level · theme.surface.page
+                    </Text>
+                  </VStack>
+                </Surface>
+                <Surface elevation={1} padding="md" radius="md" border>
+                  <VStack gap="xs">
+                    <Text variant="footnote" weight="semibold">
+                      Elevation 1 (Raised Ground)
+                    </Text>
+                    <Text variant="caption" tone="secondary">
+                      Card / list row · theme.surface.raised
+                    </Text>
+                  </VStack>
+                </Surface>
+                <Surface elevation={2} padding="md" radius="md">
+                  <VStack gap="xs">
+                    <Text variant="footnote" weight="semibold">
+                      Elevation 2 (Floating Layer)
+                    </Text>
+                    <Text variant="caption" tone="secondary">
+                      Sheet / toast · theme.surface.floating + shadow
+                    </Text>
+                  </VStack>
+                </Surface>
+                <Surface sunken padding="md" radius="md" border>
+                  <VStack gap="xs">
+                    <Text variant="footnote" weight="semibold">
+                      Sunken Surface
+                    </Text>
+                    <Text variant="caption" tone="secondary">
+                      Recessed container · theme.surface.sunken
+                    </Text>
+                  </VStack>
+                </Surface>
+              </VStack>
+            </VStack>
+
+            {/* Forced Dark Theme Elevation Ladder */}
+            <VStack gap="sm">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                DARK THEME OVERRIDE (LIGHTNESS ELEVATION · NO SHADOWS)
+              </Text>
+              <ThemeProvider themeOverride="dark">
+                <Surface elevation={0} padding="md" radius="lg">
+                  <VStack gap="md">
+                    <Surface elevation={0} padding="md" radius="md" border>
+                      <VStack gap="xs">
+                        <Text variant="footnote" weight="semibold">
+                          Elevation 0 (Page Ground)
+                        </Text>
+                        <Text variant="caption" tone="secondary">
+                          darkGround[900]
+                        </Text>
+                      </VStack>
+                    </Surface>
+                    <Surface elevation={1} padding="md" radius="md" border>
+                      <VStack gap="xs">
+                        <Text variant="footnote" weight="semibold">
+                          Elevation 1 (Raised Ground)
+                        </Text>
+                        <Text variant="caption" tone="secondary">
+                          darkGround[800]
+                        </Text>
+                      </VStack>
+                    </Surface>
+                    <Surface elevation={2} padding="md" radius="md">
+                      <VStack gap="xs">
+                        <Text variant="footnote" weight="semibold">
+                          Elevation 2 (Floating Layer)
+                        </Text>
+                        <Text variant="caption" tone="secondary">
+                          darkGround[700] (Lightened surface step)
+                        </Text>
+                      </VStack>
+                    </Surface>
+                    <Surface sunken padding="md" radius="md" border>
+                      <VStack gap="xs">
+                        <Text variant="footnote" weight="semibold">
+                          Sunken Surface
+                        </Text>
+                        <Text variant="caption" tone="secondary">
+                          darkGround.sunken
+                        </Text>
+                      </VStack>
+                    </Surface>
+                  </VStack>
+                </Surface>
+              </ThemeProvider>
+            </VStack>
+
+            {/* Padding Scale */}
+            <VStack gap="sm">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                PADDING SCALE LADDER
+              </Text>
+              <VStack gap="sm">
+                {(['xs', 'sm', 'md', 'lg', 'xl'] as const).map((p) => (
+                  <Surface key={p} elevation={1} padding={p} radius="md" border>
+                    <Text variant="footnote" weight="medium">
+                      {`padding="${p}"`}
+                    </Text>
+                  </Surface>
+                ))}
+              </VStack>
+            </VStack>
+
+            {/* Realistic Composition */}
+            <VStack gap="sm">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                REALISTIC COMPOSITION (BOOK CARD SHAPE)
+              </Text>
+              <Surface elevation={1} radius="md" padding="lg" border>
+                <VStack gap="xs">
+                  <Text variant="body" weight="semibold">
+                    The Elements of Typographic Style
+                  </Text>
+                  <Text variant="footnote" tone="secondary">
+                    Robert Bringhurst · 14 chapters · 352 pp
+                  </Text>
+                </VStack>
+              </Surface>
+            </VStack>
           </VStack>
         </Section>
       </ScrollView>

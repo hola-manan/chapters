@@ -58,6 +58,7 @@ export const overlay = {
 export const pure = {
   white: '#FFFFFF',
   black: '#000000',
+  transparent: 'transparent',
 } as const;
 
 export const color = {
