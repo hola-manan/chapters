@@ -1,0 +1,76 @@
+# Component inventory
+
+The working list for the component passes. Ordered by dependency — earlier entries are used by
+later ones. Each component gets its own pass: **brief → you decide → implement → look on device
+→ iterate**. Nothing here is designed in advance.
+
+**Status legend:** `todo` · `brief written` · `decided` · `built` · `settled`
+
+## How a pass works
+
+1. **Brief.** What the component must do, every state it has, the real content it will hold
+   (pulled from the actual books in `pdfs/`), its constraints, and the genuine decision points
+   with tradeoffs. No implementation, no pre-chosen default.
+2. **You decide.** The design direction is yours.
+3. **Implement.** Built in `app/_dev/gallery.tsx` first, then wired into the app.
+4. **Iterate** against your eye on the device.
+
+Decisions get recorded under each component as they land, so the reasoning survives.
+
+---
+
+## Tier 1 — `design/` (portable anywhere: web, native, any framework)
+
+Not components. Settled in the design-direction session before any component pass, because
+per-component decisions cannot cohere without them.
+
+| Token set | Status | Notes |
+|---|---|---|
+| `color` + themes | todo | |
+| `type` — UI scale and reading scale, kept independent | todo | |
+| `space` | todo | |
+| `motion` — durations, easings, springs | todo | |
+| `radius`, `shadow` | todo | |
+
+---
+
+## Tier 2 — `ui/` (reusable in any React Native app)
+
+| # | Component | Status | The interesting problem in it |
+|---|---|---|---|
+| 1 | `Text` | todo | The typographic primitive. Two independent scales — UI type and reading type — and how one component exposes both without becoming a mess. |
+| 2 | `Stack` | todo | Layout and the spacing scale. Whether spacing belongs to the parent or the child. |
+| 3 | `Surface` | todo | Themed backgrounds and elevation. How "raised" reads without shadows in dark themes. |
+| 4 | `Pressable` | todo | Press feedback: scale, opacity, timing, haptics. The most-reused component you will ever write. |
+| 5 | `Icon` | todo | Icon sizing and optical alignment against text. |
+| 6 | `Divider` | todo | Deceptively deep — separator weight and inset control list rhythm more than row height does. |
+| 7 | `Button` | todo | Hierarchy: primary / secondary / quiet, and how much a two-action app really needs. |
+| 8 | `Slider` | todo | Custom gesture handling on the UI thread. Powers the reader's live typography controls. |
+| 9 | `SegmentedControl` | todo | Theme and font pickers. Selection motion. |
+| 10 | `Sheet` | todo | Bottom sheet: drag, detents, backdrop, dismissal. The richest gesture work in the project. |
+| 11 | `Skeleton` | todo | Loading shimmer. What a placeholder should imply about incoming content. |
+| 12 | `Progress` | todo | Ring and bar. Serves both import progress and reading progress. |
+| 13 | `EmptyState` | todo | Composition, illustration, tone of voice. |
+| 14 | `Toast` | todo | Transient feedback: entry, dwell, exit, stacking. |
+| 15 | `CollapsingHeader` | todo | Scroll-linked interpolation done properly on the UI thread. |
+
+## Tier 3 — `features/` (this app only)
+
+| # | Component | Status | The interesting problem in it |
+|---|---|---|---|
+| 16 | `GeneratedCover` | todo | Covers are generated, not extracted — deterministic gradient plus title in the reading face, hashed from the title. Sidesteps PDF thumbnailing and gives a generative-design surface. |
+| 17 | `BookCard` | todo | Cover / title / meta hierarchy at small size. Where a grid lives or dies. |
+| 18 | `LibraryGrid` | todo | Grid rhythm, column count, gutters, scroll padding. |
+| 19 | `ImportTile` | todo | The primary action, placed in the content flow rather than floating over it. |
+| 20 | `ImportProgressCard` | todo | The parse wait as a designed moment: optimistic insert, live stages, skeleton filling in. |
+| 21 | `UnreadableBookState` | todo | **Added after corpus probing.** Two of six real books are scanned images with no text layer and cannot be reflowed. This needs an honest, designed answer — see `docs/corpus-findings.md`. |
+| 22 | `ContentsHeader` | todo | Book title block and its collapse into the nav bar. |
+| 23 | `ChapterRow` | todo | Number, title, progress, length. List rhythm against real chapter titles — some are very long (see Joke Writing's "Chapter Five (PRACTICAL): Double Joke-webs & The Hadron Joke Collider"). |
+| 24 | `ParagraphBlock` | todo | **The most important component in the app.** Measure, line height derived from measure, paragraph spacing vs indentation, widow handling. |
+| 25 | `HeadingBlock` | todo | Chapter openers: scale, space above vs below, optical alignment. |
+| 26 | `PageBreakMarker` | todo | Whether the source pagination should be visible at all — a real design question, not a given. |
+| 27 | `ReaderChrome` | todo | Auto-hide on scroll down, return on scroll up, centre-tap toggle. Genuinely instructive gesture state. |
+| 28 | `ReaderProgressBar` | todo | Progress within chapter vs within book — which one actually helps a reader. |
+| 29 | `ReaderSettingsSheet` | todo | Live typography controls; changes apply underneath the sheet as you drag, so it doubles as the playground. |
+| 30 | `ChapterTransition` | todo | Horizontal swipe between chapters with a haptic tick at boundaries. |
+| 31 | `ChapterEndCard` | todo | End of chapter — arrival, and the invitation to continue. |
