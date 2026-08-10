@@ -22,6 +22,9 @@ export type TextProps = {
   testID?: string;
 };
 
+export type TextVariant = NonNullable<TextProps['variant']>;
+export type TextWeight = NonNullable<TextProps['weight']>;
+
 const WEIGHT_MAP = {
   regular: '400',
   medium: '500',

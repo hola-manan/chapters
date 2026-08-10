@@ -25,6 +25,7 @@ export const space = {
   xl: 24,
   xxl: 32,
   xxxl: 48,
+  minTouchTarget: 44,
 } as const;
 
 export type SpaceValue = (typeof space)[keyof typeof space];

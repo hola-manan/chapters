@@ -6,4 +6,9 @@ export * from './primitives/stackUtils';
 export * from './primitives/VStack';
 export * from './primitives/HStack';
 export * from './primitives/Surface';
-
+export * from './primitives/Pressable';
+export * from './primitives/PressableCard';
+export * from './primitives/PressableRow';
+export * from './primitives/IconButton';
+export * from './primitives/TextLink';
+export * from './primitives/TapRegion';

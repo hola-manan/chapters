@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { radius, space } from '../../design/index.ts';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { motion, radius, space } from '../../design/index.ts';
 import type { Block } from '../../pdf/types.ts';
 import { listBooks } from '../../storage/index.ts';
 import {
   HStack,
+  IconButton,
+  PressableCard,
+  PressableRow,
   ReadingText,
   Surface,
+  TapRegion,
   Text,
+  TextLink,
   ThemeProvider,
   useTheme,
   VStack,
@@ -34,6 +40,9 @@ const GAP_STEPS = [
   { key: 'xxxl', px: space.xxxl },
 ] as const;
 
+const SCALE_TARGETS = [0.99, 0.97, 0.95, 0.92] as const;
+const SPRING_PRESETS = ['gentle', 'default', 'snappy'] as const;
+
 export default function Gallery() {
   const [themeMode, setThemeMode] = useState<'system' | 'light' | 'dark'>('system');
   const override = themeMode === 'system' ? undefined : themeMode;
@@ -56,6 +65,16 @@ function GalleryContent({
   const [paragraphs, setParagraphs] = useState<string[] | null>(null);
   const [sourceLabel, setSourceLabel] = useState('Placeholder text');
   const [showHiddenChild, setShowHiddenChild] = useState(false);
+
+  // Pressable Live Tuning State
+  const [demoScaleTarget, setDemoScaleTarget] = useState<number>(0.97);
+  const [demoSpringPreset, setDemoSpringPreset] = useState<'gentle' | 'default' | 'snappy'>('default');
+  const [cardPressCount, setCardPressCount] = useState<number>(0);
+  const [rowPressCount, setRowPressCount] = useState<number>(0);
+  const [iconPressCount, setIconPressCount] = useState<number>(0);
+  const [linkPressCount, setLinkPressCount] = useState<number>(0);
+  const [tapRegionToggled, setTapRegionToggled] = useState<boolean>(false);
+  const [hapticPressCount, setHapticPressCount] = useState<number>(0);
 
   useEffect(() => {
     (async () => {
@@ -92,7 +111,7 @@ function GalleryContent({
             COMPONENT GALLERY
           </Text>
           <Text variant="title1" weight="semibold">
-            Typographic Specimen
+            Typographic & Interaction Specimen
           </Text>
         </View>
 
@@ -245,24 +264,27 @@ function GalleryContent({
         {/* Section 8: VStack with Dividers */}
         <Section title="VStack with Dividers (Conditional Child Proof)" borderBottomColor={theme.border.subtle}>
           <VStack gap="md">
-            <Pressable
+            <PressableCard
               onPress={() => setShowHiddenChild((prev) => !prev)}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor: showHiddenChild ? theme.accent.base : theme.surface.sunken,
-                  alignSelf: 'flex-start',
-                },
-              ]}
             >
-              <Text
-                variant="footnote"
-                tone={showHiddenChild ? 'onAccent' : 'primary'}
-                weight="medium"
+              <View
+                style={[
+                  styles.chip,
+                  {
+                    backgroundColor: showHiddenChild ? theme.accent.base : theme.surface.sunken,
+                    alignSelf: 'flex-start',
+                  },
+                ]}
               >
-                {showHiddenChild ? 'Hide Conditionally Rendered Item' : 'Show Conditionally Rendered Item'}
-              </Text>
-            </Pressable>
+                <Text
+                  variant="footnote"
+                  tone={showHiddenChild ? 'onAccent' : 'primary'}
+                  weight="medium"
+                >
+                  {showHiddenChild ? 'Hide Conditionally Rendered Item' : 'Show Conditionally Rendered Item'}
+                </Text>
+              </View>
+            </PressableCard>
             <View
               style={[
                 styles.cardScaffolding,
@@ -428,6 +450,275 @@ function GalleryContent({
             </VStack>
           </VStack>
         </Section>
+
+        {/* Section 10: Pressable & Derived Variants */}
+        <Section title="Pressable Primitives & Live Motion Tuning" borderBottomColor={theme.border.subtle}>
+          <VStack gap="xl">
+            {/* Live Motion Controls */}
+            <VStack gap="sm">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                SCALE TARGET (LIVE CONTROL)
+              </Text>
+              <HStack gap="xs">
+                {SCALE_TARGETS.map((target) => (
+                  <PressableCard
+                    key={target}
+                    scaleTarget={target}
+                    onPress={() => setDemoScaleTarget(target)}
+                  >
+                    <View
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor:
+                            demoScaleTarget === target ? theme.accent.base : theme.surface.sunken,
+                        },
+                      ]}
+                    >
+                      <Text
+                        variant="footnote"
+                        tone={demoScaleTarget === target ? 'onAccent' : 'primary'}
+                        weight="medium"
+                      >
+                        {target.toString()}
+                      </Text>
+                    </View>
+                  </PressableCard>
+                ))}
+              </HStack>
+            </VStack>
+
+            <VStack gap="sm">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                SPRING CONFIG PRESET (LIVE CONTROL)
+              </Text>
+              <HStack gap="xs">
+                {SPRING_PRESETS.map((preset) => (
+                  <PressableCard
+                    key={preset}
+                    springConfig={motion.springs[preset]}
+                    onPress={() => setDemoSpringPreset(preset)}
+                  >
+                    <View
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor:
+                            demoSpringPreset === preset ? theme.accent.base : theme.surface.sunken,
+                        },
+                      ]}
+                    >
+                      <Text
+                        variant="footnote"
+                        tone={demoSpringPreset === preset ? 'onAccent' : 'primary'}
+                        weight="medium"
+                      >
+                        {preset}
+                      </Text>
+                    </View>
+                  </PressableCard>
+                ))}
+              </HStack>
+            </VStack>
+
+            {/* Tunable Card */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                LIVE TUNABLE CARD (THUMB DIRECTLY)
+              </Text>
+              <PressableCard
+                scaleTarget={demoScaleTarget}
+                springConfig={motion.springs[demoSpringPreset]}
+                onPress={() => setCardPressCount((c) => c + 1)}
+              >
+                <Surface elevation={1} padding="lg" radius="md" border>
+                  <VStack gap="xs">
+                    <Text variant="body" weight="semibold">
+                      Interactive Scalable Card
+                    </Text>
+                    <Text variant="caption" tone="secondary">
+                      {`scaleTarget: ${demoScaleTarget} · spring: ${demoSpringPreset} · Taps: ${cardPressCount}`}
+                    </Text>
+                  </VStack>
+                </Surface>
+              </PressableCard>
+            </VStack>
+
+            {/* Specialized Variants */}
+            <VStack gap="lg">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                THE FIVE SPECIALISED VARIANTS
+              </Text>
+
+              {/* 1. PressableCard */}
+              <VStack gap="xs">
+                <Text variant="caption" tone="secondary" weight="semibold">
+                  {'1. PressableCard (feedback="scale")'}
+                </Text>
+                <PressableCard onPress={() => setCardPressCount((c) => c + 1)}>
+                  <Surface elevation={1} padding="md" radius="md" border>
+                    <HStack justify="between" align="center">
+                      <VStack gap="xxs">
+                        <Text variant="body" weight="semibold">
+                          Self-contained Tile
+                        </Text>
+                        <Text variant="caption" tone="secondary">
+                          Scales down on press-in using worklet springs
+                        </Text>
+                      </VStack>
+                      <Text variant="footnote" tone="accent" weight="medium">
+                        {`Taps: ${cardPressCount}`}
+                      </Text>
+                    </HStack>
+                  </Surface>
+                </PressableCard>
+              </VStack>
+
+              {/* 2. PressableRow */}
+              <VStack gap="xs">
+                <Text variant="caption" tone="secondary" weight="semibold">
+                  {'2. PressableRow (feedback="overlay")'}
+                </Text>
+                <Surface elevation={1} radius="md" border>
+                  <PressableRow onPress={() => setRowPressCount((r) => r + 1)}>
+                    <View style={styles.rowInner}>
+                      <HStack justify="between" align="center">
+                        <VStack gap="xxs">
+                          <Text variant="body" weight="medium">
+                            Full-bleed List Row
+                          </Text>
+                          <Text variant="caption" tone="secondary">
+                            Press overlay fills full row bounds
+                          </Text>
+                        </VStack>
+                        <Text variant="footnote" tone="accent" weight="medium">
+                          {`Taps: ${rowPressCount}`}
+                        </Text>
+                      </HStack>
+                    </View>
+                  </PressableRow>
+                </Surface>
+              </VStack>
+
+              {/* 3. IconButton */}
+              <VStack gap="xs">
+                <Text variant="caption" tone="secondary" weight="semibold">
+                  {'3. IconButton (feedback="opacity", 44×44pt touch target)'}
+                </Text>
+                <HStack gap="md" align="center">
+                  <IconButton
+                    onPress={() => setIconPressCount((i) => i + 1)}
+                    accessibilityLabel="Bookmark chapter"
+                  >
+                    <Ionicons name="bookmark-outline" size={24} color={theme.text.primary} />
+                  </IconButton>
+                  <Text variant="footnote" tone="secondary">
+                    {`Icon Taps: ${iconPressCount} (Expanded slop target)`}
+                  </Text>
+                </HStack>
+              </VStack>
+
+              {/* 4. TextLink */}
+              <VStack gap="xs">
+                <Text variant="caption" tone="secondary" weight="semibold">
+                  {'4. TextLink (feedback="opacity", accessibilityRole="link")'}
+                </Text>
+                <HStack gap="sm" align="center">
+                  <TextLink
+                    variant="body"
+                    weight="semibold"
+                    onPress={() => setLinkPressCount((l) => l + 1)}
+                  >
+                    Read chapter outline →
+                  </TextLink>
+                  <Text variant="caption" tone="secondary">
+                    {`(${linkPressCount} clicks)`}
+                  </Text>
+                </HStack>
+              </VStack>
+
+              {/* 5. TapRegion */}
+              <VStack gap="xs">
+                <Text variant="caption" tone="secondary" weight="semibold">
+                  {'5. TapRegion (feedback="none")'}
+                </Text>
+                <Surface elevation={1} padding="md" radius="md" border>
+                  <TapRegion onPress={() => setTapRegionToggled((prev) => !prev)}>
+                    <HStack justify="between" align="center">
+                      <VStack gap="xxs">
+                        <Text variant="body" weight="medium">
+                          Invisible Tap Area
+                        </Text>
+                        <Text variant="caption" tone="secondary">
+                          No visual press animation by design
+                        </Text>
+                      </VStack>
+                      <View
+                        style={[
+                          styles.badge,
+                          {
+                            backgroundColor: tapRegionToggled
+                              ? theme.accent.base
+                              : theme.surface.sunken,
+                          },
+                        ]}
+                      >
+                        <Text
+                          variant="caption"
+                          tone={tapRegionToggled ? 'onAccent' : 'primary'}
+                          weight="semibold"
+                        >
+                          {tapRegionToggled ? 'Toggled: ON' : 'Toggled: OFF'}
+                        </Text>
+                      </View>
+                    </HStack>
+                  </TapRegion>
+                </Surface>
+              </VStack>
+
+              {/* Disabled Example */}
+              <VStack gap="xs">
+                <Text variant="caption" tone="secondary" weight="semibold">
+                  6. Disabled PressableCard
+                </Text>
+                <PressableCard disabled onPress={() => {}}>
+                  <Surface elevation={1} padding="md" radius="md" border>
+                    <Text variant="body" tone="secondary">
+                      Disabled state (reduced opacity, press suppressed)
+                    </Text>
+                  </Surface>
+                </PressableCard>
+              </VStack>
+
+              {/* Haptic Selection Example */}
+              <VStack gap="xs">
+                <Text variant="caption" tone="secondary" weight="semibold">
+                  {'7. Haptic Feedback (haptic="selection")'}
+                </Text>
+                <PressableCard
+                  haptic="selection"
+                  onPress={() => setHapticPressCount((h) => h + 1)}
+                >
+                  <Surface elevation={1} padding="md" radius="md" border>
+                    <HStack justify="between" align="center">
+                      <VStack gap="xxs">
+                        <Text variant="body" weight="semibold">
+                          Selection Haptic Card
+                        </Text>
+                        <Text variant="caption" tone="secondary">
+                          Triggers selection haptic on press-in
+                        </Text>
+                      </VStack>
+                      <Text variant="footnote" tone="accent" weight="medium">
+                        {`Taps: ${hapticPressCount}`}
+                      </Text>
+                    </HStack>
+                  </Surface>
+                </PressableCard>
+              </VStack>
+            </VStack>
+          </VStack>
+        </Section>
       </ScrollView>
 
       {/* Theme Selection Controls */}
@@ -442,25 +733,28 @@ function GalleryContent({
         </Text>
         <View style={styles.chipRow}>
           {(['system', 'light', 'dark'] as const).map((m) => (
-            <Pressable
+            <PressableCard
               key={m}
               onPress={() => setThemeMode(m)}
-              style={[
-                styles.chip,
-                {
-                  backgroundColor:
-                    themeMode === m ? theme.accent.base : theme.surface.sunken,
-                },
-              ]}
             >
-              <Text
-                variant="footnote"
-                tone={themeMode === m ? 'onAccent' : 'primary'}
-                weight="medium"
+              <View
+                style={[
+                  styles.chip,
+                  {
+                    backgroundColor:
+                      themeMode === m ? theme.accent.base : theme.surface.sunken,
+                  },
+                ]}
               >
-                {m.charAt(0).toUpperCase() + m.slice(1)}
-              </Text>
-            </Pressable>
+                <Text
+                  variant="footnote"
+                  tone={themeMode === m ? 'onAccent' : 'primary'}
+                  weight="medium"
+                >
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </Text>
+              </View>
+            </PressableCard>
           ))}
         </View>
       </View>
@@ -533,6 +827,14 @@ const styles = StyleSheet.create({
   chip: {
     paddingHorizontal: space[16],
     paddingVertical: space[8],
+    borderRadius: radius.pill,
+  },
+  rowInner: {
+    padding: space[16],
+  },
+  badge: {
+    paddingHorizontal: space[12],
+    paddingVertical: space.xs,
     borderRadius: radius.pill,
   },
 });

@@ -1,105 +1,114 @@
-# Component pass 3 — Surface
+# Component pass 4 — Pressable and its derived variants
 
 ## Goal
 
-Build the container primitive. `Stack` owns the space *between* children; `Surface` owns the space
-*around* content, plus background, radius and border. It is the only component permitted to paint a
-background colour.
+Build the interaction primitive and the five specialised components that derive from it. This is
+the most reused component in the codebase and the first place the springy motion decision becomes
+real.
 
 Read `GEMINI.md` first. `ui/` may import from `design/` only, may never hardcode a colour, size,
-radius or duration, and — following `Text` and the stacks — **must not accept a `style` prop or
-spread `...rest`**.
+radius or duration, and must not accept a `style` prop or spread `...rest`.
 
 ## Decisions already made by the human — transcribe, do not reinterpret
 
-1. **Surface owns background, padding, radius and border.** It is the container primitive; a call
-   site should not need a bare `View`.
-2. **Depth is flat by default.** Elevation 0 and 1 use colour and hairline only, in both themes.
-   Only elevation 2 — floating layers such as sheets and toasts — gets a shadow in the light theme,
-   and extra lightness in the dark theme where shadows are invisible.
-3. **Elevation is numeric**: `elevation={0 | 1 | 2}`. `sunken` is **not** part of the ladder; it is
-   a separate boolean, because a numeric scale handles a recessed surface awkwardly.
+1. **One base `Pressable`, with five specialised components composing it** by fixing props. Use
+   composition — a wrapper that renders `<Pressable feedback="..." />`. **Not** class inheritance:
+   function components only, and hooks do not work in classes.
+2. **Feedback is a closed vocabulary**: `'scale' | 'overlay' | 'opacity' | 'none'`.
+3. **Haptics default to `none`** and are opted into explicitly at the call site. Policy is
+   consequential actions only — state changes, not ordinary navigation. Do not bake haptics into
+   the card or row variants.
+4. **Scale depth is undecided on purpose.** The gallery must expose live controls so it can be
+   judged by thumb, not by description.
 
-## 0. Tier-1 additions these decisions require
-
-Both are consequences of the decisions above, not new design choices.
-
-**`design/tokens/color.ts` and `design/themes.ts`:**
-
-- Add `surface.floating` to the `Theme` type and both themes. In **light** it can equal
-  `surface.raised` (white), since the shadow does the separating. In **dark** it must be
-  *lighter* than `surface.raised`, because that is the only way elevation reads on a dark ground.
-  A `darkGround[700]`-style step already exists in the palette for this.
-- Add `shadow.color` to the `Theme` type and both themes. In **light**, tint it toward the forest
-  ink rather than using neutral black — a neutral shadow over the cool paper reads muddy. In
-  **dark**, set it fully transparent, since the dark theme separates by lightness and must never
-  paint a shadow.
-
-Add the primitives to `tokens/color.ts` first and reference them from `themes.ts` — `themes.ts`
-must remain free of hex literals, and there is a test asserting exactly that.
-
-## 1. `ui/primitives/Surface.tsx`
+## 1. `ui/primitives/Pressable.tsx` — the base
 
 ```ts
-type SurfacePadding = 'none' | 'xxs' | 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'xxxl';
-
-type SurfaceProps = {
-  elevation?: 0 | 1 | 2;        // 0 page · 1 raised · 2 floating
-  sunken?: boolean;             // deliberately outside the ladder
-  padding?: SurfacePadding;     // all sides
-  paddingX?: SurfacePadding;    // overrides padding horizontally
-  paddingY?: SurfacePadding;    // overrides padding vertically
-  radius?: 'none' | 'sm' | 'md' | 'lg' | 'pill';
-  border?: boolean;             // hairline in theme.border.subtle
+type PressableProps = {
+  onPress?: () => void;
+  onLongPress?: () => void;
+  feedback?: 'scale' | 'overlay' | 'opacity' | 'none';   // default 'opacity'
+  haptic?: 'none' | 'selection' | 'light' | 'success' | 'error';  // default 'none'
+  hitSlop?: number;
+  disabled?: boolean;
   flex?: boolean;
+  accessibilityRole?: 'button' | 'link';
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
   children: React.ReactNode;
   testID?: string;
 };
 ```
 
-- Defaults: `elevation={0}`, `padding='none'`, `radius='none'`, `border={false}`.
-- Reuse the padding vocabulary from the stacks — import the existing `StackGap` type or extract the
-  shared union into one place. Do **not** define a second, divergent spacing vocabulary.
-- Background: `elevation` 0 → `surface.page`, 1 → `surface.raised`, 2 → `surface.floating`.
-  `sunken` overrides to `surface.sunken` regardless of elevation.
-- Shadow **only** at `elevation={2}`, built from the `shadow` tokens in `design/` plus
-  `theme.shadow.color`. Set the iOS shadow properties and the Android `elevation` property so it is
-  not silently iOS-only. Because the dark theme's `shadow.color` is transparent, the same code path
-  correctly produces no visible shadow in dark — do not branch on theme name.
-- `radius` maps through the radius tokens. `border` draws `StyleSheet.hairlineWidth` in
-  `theme.border.subtle`.
+Behaviour requirements:
+
+- **Feedback begins on press-in, not on release.** Waiting for release is the single most common
+  cause of an interface feeling laggy. Use `onPressIn` / `onPressOut`.
+- Animate with **`react-native-reanimated` v4 worklets** and the spring configs in
+  `design/tokens/motion`. Never `Animated` from `react-native`. Springs are the vocabulary here;
+  durations are only for opacity.
+- `scale` animates a shared value with `withSpring`. `opacity` animates opacity. `overlay` shows an
+  absolutely-positioned fill in `theme.state.pressOverlay` that fades in. `none` renders no visual
+  change at all but still handles the press.
+- **Respect reduced motion.** Read the OS setting (Reanimated's `useReducedMotion` or
+  `AccessibilityInfo`) and degrade `scale` to a plain opacity change when it is on. Motion
+  sensitivity is a real accessibility need, not a preference.
+- `haptic` maps to `expo-haptics`: `selection` → `selectionAsync`, `light` →
+  `impactAsync(Light)`, `success` / `error` → `notificationAsync`. Fire on press-in for
+  `selection` / `light`; `success` / `error` are for callers to trigger on outcomes.
+- `disabled` prevents presses, suppresses haptics, and reduces opacity. Set
+  `accessibilityState={{ disabled }}`.
+- Default `accessibilityRole` to `'button'`.
 - No `style` prop, no `...rest` spread.
 
-## 2. Export from `ui/index.ts`
+## 2. The five derived components
 
-Add `Surface` and its prop types to the barrel.
+Each is a thin wrapper that fixes props on the base. Each in its own file under `ui/primitives/`.
 
-## 3. Extend the gallery
+| Component | Fixes | Notes |
+|---|---|---|
+| `PressableCard` | `feedback="scale"` | For self-contained tiles with their own surface. |
+| `PressableRow` | `feedback="overlay"` | Full-bleed list rows. Overlay must cover the full row width. |
+| `IconButton` | `feedback="opacity"`, `hitSlop` sized so the target reaches **44×44pt** | Apple's minimum touch target. The icon is visually smaller; the slop is what makes it usable. |
+| `TextLink` | `feedback="opacity"`, `accessibilityRole="link"` | Renders `Text` with `tone="accent"`. Accepts `variant` and `weight` and forwards them. |
+| `TapRegion` | `feedback="none"` | Invisible tap areas — reader centre-tap, sheet backdrop. No visual response by design. |
 
-Add a Surface section showing:
+Do **not** duplicate press logic into any of them. Every one renders the base.
 
-- All three elevations side by side on the page background, labelled, so the flat-versus-floating
-  distinction is visible. Include a `sunken` example.
-- The same set with the theme override switched to dark — the point being that elevation 2 still
-  reads as raised there, via lightness rather than shadow. This is the specific thing to verify by
-  eye.
-- The padding scale: a few `Surface`es with different `padding` values and a visible border, so the
-  padding ladder can be judged the way the gap ladder was.
-- One realistic composition: a `Surface` with `elevation={1}`, `radius='md'`, `padding='lg'`
-  containing a `VStack` with a title `Text` and a secondary `Text` — the shape a book card will
-  take, so the primitives can be seen working together.
+## 3. Export from `ui/index.ts`
+
+All six plus their prop types.
+
+## 4. Gallery — make press feel tunable
+
+Add a Pressable section with **live controls**, because press feel cannot be judged from a static
+render:
+
+- A slider or chip row for **scale target**, offering at least `0.99`, `0.97`, `0.95`, `0.92`.
+- A chip row for **spring config**: `gentle`, `default`, `snappy` from the motion tokens.
+- A large `PressableCard` bound to those two controls, so the values can be thumbed directly.
+- One live example of each of the five variants, each clearly labelled, all actually pressable:
+  a card, a full-width row, an icon button, a text link, and a tap region that toggles something
+  visible so it is obviously working despite showing no feedback.
+- A disabled example.
+- One example with `haptic="selection"` so the haptic can be felt.
+
+Wire the scale and spring controls through props on the base `Pressable` for the demo only — do
+not hardcode the chosen value yet. The human picks it after handling it, and it gets written into
+the tokens in a follow-up.
 
 ## Explicitly not in this phase
 
-- No `Pressable`, `Button`, `Icon` or any other component.
-- Do not decide `Divider`'s inset or weight — still its own pass.
-- Do not restyle `app/index.tsx`, the contents screen or the reader.
-- Do not change any type or motion token, or any decided colour value.
+- No `Button` component — that is a later pass and depends on this one.
+- Do not decide `Divider`'s inset or weight.
+- Do not restyle `app/index.tsx`, the contents screen or the reader. The ugly Delete button stays
+  as it is; its real design is decided at the `BookCard` pass.
+- Do not change any decided token value.
 
 ## Done means
 
-`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, including the `ui/` hex-literal guard
-and the `themes.ts` no-hex guard. The three real screens are unchanged.
+`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, including the `ui/` hex and import
+guards. The three real screens are unchanged. Every variant in the gallery responds to touch.
 
 ## Reminders
 
