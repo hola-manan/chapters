@@ -66,11 +66,14 @@ ui/                     TIER 2 — reusable RN components
 features/               TIER 3 — library/ contents/ reader/ import/
 pdf/                    PDF parsing
   parse.ts              the ONLY public entry point: parsePdf(uri) -> Book
-  PdfParser.dom.tsx     'use dom' — pdf.js runs here, inside a WebView
+  PdfParserView.tsx     hidden WebView host; pdf.js runs inside it
+  pdfJsSource.ts        generated: pdf.js + worker inlined as strings (~1.9MB)
   chapters.ts           chapter detection (pure, testable in Node)
   blocks.ts             text items -> Block[] (pure, testable in Node)
   types.ts              Book, Chapter, Block
+  index.ts              barrel
 storage/                library.ts, files.ts, prefs.ts
+test/pdf.test.ts        Node-side tests for the pure pdf/ functions
 docs/
   components.md         component inventory + design decisions as they land
   corpus-findings.md    measured facts about the real test PDFs — READ THIS
@@ -83,9 +86,15 @@ plans/current.md        the task you are implementing
 Read `docs/corpus-findings.md` before touching anything in `pdf/`. It records measurements from
 the real corpus. The load-bearing points:
 
-- pdf.js is a browser library and cannot run in React Native directly — it runs inside a WebView.
-  All of it stays behind `parsePdf(uri)` in `pdf/parse.ts`; nothing else in the app imports
-  `pdfjs-dist`.
+- pdf.js is a browser library and cannot run in React Native directly — it runs inside a hidden
+  `react-native-webview` hosted by `PdfParserView`, mounted once in the root layout. All of it
+  stays behind `parsePdf(uri)` in `pdf/parse.ts`; nothing else in the app imports `pdfjs-dist`.
+- The bridge is chunked in **both** directions and must stay that way: the PDF bytes go in as
+  ~3MB slices (a 300MB book would otherwise crash the app as a single base64 string), and text
+  runs come back streamed every ~25 pages (a 436-page book is otherwise tens of MB of JSON in
+  one `postMessage`). Do not "simplify" either into a single message.
+- The WebView announces `{ type: 'ready' }` once pdf.js has loaded; parse commands issued before
+  that are queued. Do not replace this with a timeout guess.
 - **Half the real corpus is not the happy path.** Two of six books are scanned images with no
   text layer at all and cannot be reflowed; one has no outline and needs heuristics. Chapter
   structure and text availability are independent — a book can have a perfect outline and zero

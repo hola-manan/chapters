@@ -207,3 +207,83 @@ PDF-derived fixture files and do not read from `pdfs/`.
   it, list it at the end of your response instead of doing it.
 - Do not modify or read from `pdfs/`.
 - Do not upgrade Expo or any `expo-*` package.
+
+---
+
+# Fixes — round 1
+
+Phase 1 is structurally correct: the screens, storage, pure parsing functions, and Node tests are
+all in the right shape, typecheck and lint pass, all four tests pass, and Metro bundles the app.
+Fix the following defects. **Do not restyle anything, do not add features, do not touch the UI
+beyond what a fix requires.** Ugly is still correct.
+
+## 1. The PDF is never copied to permanent storage — books will break
+
+`storage/files.ts` exports `saveBookSource`, but **nothing ever calls it**. `pdf/parse.ts` sets
+`sourceUri: req.uri`, which is the `expo-document-picker` cache copy. iOS purges the cache
+directory, so every imported book's `sourceUri` becomes a dangling path.
+
+Fix: after a successful parse, copy the PDF into the book's directory via `saveBookSource(id, uri)`
+and set `sourceUri` to the permanent path it returns, before `saveBookData` writes `book.json`.
+Do this where the book is persisted, not inside the WebView message handler.
+
+## 2. A 300MB PDF will crash the app — the base64 fallback is live
+
+The plan said not to base64 an entire PDF across the bridge. `pdf/parse.ts:82` does exactly that
+via `readAsStringAsync(..., Base64)`, and it is not dead code: it is the fallback when the
+WebView's `fetch(uri)` fails, which is the *likely* path for a `file://` URI in WKWebView.
+`Card College 1` is ~300MB, which becomes a ~400MB base64 string in JS memory and then a single
+`postMessage` payload. This will hard-crash.
+
+Fix: keep the `fetch(uri)` fast path, but replace the fallback with a **chunked** transfer. Read
+the file in slices using the `position` and `length` options of
+`FileSystem.readAsStringAsync` (legacy API supports both), post each chunk as its own message
+with a sequence number, and reassemble into a single `Uint8Array` inside the WebView before
+calling `getDocument`. Use a chunk size around 4MB of base64. Report `reading` progress as
+chunks arrive, so the existing progress UI shows movement on large files.
+
+## 3. The extracted runs are returned in one giant message
+
+`parsePdfDocument` accumulates every text run for the whole document and posts them in a single
+`result` message. `The Royal Road to Card Magic` is 436 pages; that payload is tens of megabytes
+of JSON serialized through `ReactNativeWebView.postMessage`.
+
+Fix: stream the runs. Post a `runs_chunk` message every ~25 pages carrying only that batch, and
+accumulate them in `pdf/parse.ts` against the pending request. The final `result` message should
+carry `numPages`, `status`, and `outline` only — not `runs`. Chapter detection still happens in
+`parse.ts` once all chunks have arrived.
+
+## 4. The pdf.js worker is not actually configured
+
+`PdfParserView.tsx:24` sets `GlobalWorkerOptions.workerSrc = ''`. An empty string is not a way to
+disable the worker; pdf.js will fall through to its fake-worker path or attempt to resolve a
+default worker URL, depending on build.
+
+Fix: use the same blob-URL technique already used for the main library. Add the contents of
+`pdfjs-dist/legacy/build/pdf.worker.mjs` as a second exported string alongside `PDF_JS_SOURCE`,
+build a `Blob` + `URL.createObjectURL` from it, and assign that to
+`GlobalWorkerOptions.workerSrc` before any `getDocument` call. It must never attempt a network
+request — the app has to parse offline.
+
+## 5. A parse can fire before pdf.js has finished loading
+
+The WebView posts `{ type: 'ready' }` after pdf.js loads, but nothing consumes it —
+`handleParserMessage` drops it because it has no `id`. Instead `parsePdf` guesses with a 500ms
+`setTimeout`. On a cold start or a slow device, `parsePdfDocument` runs while `window.pdfjsLib`
+is still undefined.
+
+Fix: track readiness in `pdf/parse.ts` from the `ready` message. Queue any parse commands
+received before ready and flush them once it arrives. Remove the 500ms timeout guess. Keep a
+real timeout only as a genuine failure path (e.g. 30s without `ready` rejects with a clear error).
+
+## Not in scope for this round
+
+- `expo-file-system/legacy` is acceptable for now; the chunked read in fix 2 depends on it.
+  Leave it, but add a one-line comment noting it is deliberate.
+- Do not change the `.ts` import extensions — Metro resolves them and the app bundles.
+
+## Done means
+
+`npx tsc --noEmit`, `npm run lint`, and `node --test` all pass, and the app still bundles with
+`npx expo export --platform ios`. Add a Node test covering the runs-chunk accumulation if it can
+be done without importing React Native.
