@@ -63,7 +63,7 @@ per-component decisions cannot cohere without them.
 | 18 | `LibraryGrid` | todo | Grid rhythm, column count, gutters, scroll padding. |
 | 19 | `ImportTile` | todo | The primary action, placed in the content flow rather than floating over it. |
 | 20 | `ImportProgressCard` | todo | The parse wait as a designed moment: optimistic insert, live stages, skeleton filling in. |
-| 21 | `UnreadableBookState` | todo | **Added after corpus probing.** Two of six real books are scanned images with no text layer and cannot be reflowed. This needs an honest, designed answer — see `docs/corpus-findings.md`. |
+| 21 | ~~`UnreadableBookState`~~ | **cut** | Decided 2026-08-10: unreadable PDFs are rejected at import with an error, never added to the library. So there is no unreadable state to design, no empty reader, and no per-book branching downstream. The rejection message lives in the import flow (#20). |
 | 22 | `ContentsHeader` | todo | Book title block and its collapse into the nav bar. |
 | 23 | `ChapterRow` | todo | Number, title, progress, length. List rhythm against real chapter titles — some are very long (see Joke Writing's "Chapter Five (PRACTICAL): Double Joke-webs & The Hadron Joke Collider"). |
 | 24 | `ParagraphBlock` | todo | **The most important component in the app.** Measure, line height derived from measure, paragraph spacing vs indentation, widow handling. |

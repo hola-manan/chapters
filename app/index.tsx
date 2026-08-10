@@ -54,6 +54,22 @@ export default function LibraryScreen() {
         setProgressPct(pct);
       });
 
+      // Only readable books enter the library. A PDF with no text layer cannot be
+      // reflowed at all, so it is rejected at import rather than added as a book
+      // that can never be opened.
+      if (parsedBook.status === 'no-text-layer') {
+        setErrorMessage(
+          `“${parsedBook.title}” is scanned page images, not text. There is nothing to display.`
+        );
+        return;
+      }
+      if (parsedBook.status === 'failed') {
+        setErrorMessage(
+          `“${parsedBook.title}” could not be read.${parsedBook.error ? ` ${parsedBook.error}` : ''}`
+        );
+        return;
+      }
+
       await addBook(parsedBook);
       await loadLibrary();
     } catch (err) {
