@@ -143,3 +143,63 @@ Nothing in the running app changes appearance, because nothing consumes these to
 - Do not commit. Leave the work in the working tree.
 - Do not touch anything outside the project directory.
 - Do not upgrade Expo or any `expo-*` package.
+
+---
+
+# Fixes — round 1
+
+The token layer is otherwise correct: the two independent type scales, the derived reading line
+height, `undefined` for the system UI font, the spring-first motion vocabulary, and the dark theme
+being genuinely re-pitched rather than inverted are all right. Three fixes.
+
+## 1. The no-import rule was specified wrongly — relax it
+
+My spec said no file under `design/` may import *anything*. That was too strong and it forced the
+duplication in fix 2. The rule that actually protects portability is:
+
+> **No file under `design/` may import from a package.** Relative imports *within* `design/` are
+> fine, because the folder is copied as a unit.
+
+Update `test/design.test.ts` accordingly: parse each import/`require` specifier and fail only when
+it does **not** begin with `./` or `../`. Keep failing on `react`, `react-native`, `expo-*` and any
+other bare specifier. Keep the comment-stripping. The test must still fail loudly if someone adds
+`import { View } from 'react-native'` to a token file.
+
+## 2. `themes.ts` must consume `color.ts`, not restate it
+
+Every colour in `themes.ts` is currently a hex literal duplicated from `tokens/color.ts` —
+`#142621`, `#F7F8FA`, `#0F766E`, `#0C1412`, `#ECEFEA` and the rest. There is no link between the
+primitive layer and the semantic layer, so they can drift apart silently. That defeats the purpose
+of having two layers.
+
+Rewrite `themes.ts` to `import { ... } from './tokens/color'` and reference the primitives by name
+throughout. After this change **no hex literal may appear in `themes.ts` at all** — every value is
+either a primitive reference or a function of one. If a semantic role needs a colour that is not in
+the palette, add it to `tokens/color.ts` first (see fix 3).
+
+`rgba(...)` overlay values may stay as literals only if they cannot be expressed from the palette;
+prefer adding an explicit overlay entry to `color.ts` instead.
+
+## 3. Add the missing primitives
+
+These appear in `themes.ts` but not in `tokens/color.ts`, which is how the duplication slipped in:
+
+- The light border steps (`#E2E7E4` subtle, `#C5D0CB` strong) — add them to the `forest` ramp or a
+  dedicated `border` group, in the same green family.
+- The light `text.tertiary` step (`#889A92`).
+- The press-overlay and dark border rgba values — add an `overlay` group to `color.ts`.
+
+Once added, reference them from `themes.ts`.
+
+## Not in scope
+
+- Do not change any decided value. The palette, sizes and leading stay exactly as they are; this is
+  a wiring fix, not a redesign.
+- Still no `ui/` directory, no components, no `ThemeProvider`.
+- Do **not** modify `app/_dev/gallery.tsx`.
+
+## Done means
+
+`npx tsc --noEmit`, `npm run lint` and `node --test` all pass. `themes.ts` contains no hex
+literals. The guard test rejects a bare-specifier import but permits a relative one — verify by
+reasoning, not by leaving a broken test behind.
