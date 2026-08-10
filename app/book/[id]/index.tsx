@@ -38,6 +38,14 @@ export default function ContentsScreen() {
         </View>
       )}
 
+      {book.status === 'failed' && (
+        <View style={styles.warningBox}>
+          <Text style={styles.warningText}>
+            Failed to parse PDF: {book.error || 'Unknown error'}
+          </Text>
+        </View>
+      )}
+
       <FlatList
         data={book.chapters}
         keyExtractor={(item) => item.id}

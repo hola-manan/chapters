@@ -287,3 +287,55 @@ real timeout only as a genuine failure path (e.g. 30s without `ready` rejects wi
 `npx tsc --noEmit`, `npm run lint`, and `node --test` all pass, and the app still bundles with
 `npx expo export --platform ios`. Add a Node test covering the runs-chunk accumulation if it can
 be done without importing React Native.
+
+---
+
+# Fixes — round 2 (cleanup only)
+
+Phase 1 now works on device. Scope note from the human: **PDF parsing quality is explicitly out
+of scope for this project.** Do not tune chapter-detection heuristics, do not improve paragraph
+joining, do not touch `blocks.ts` or `chapters.ts` logic. The bar is "content is present"; which
+text the engine picks is not this project's concern. This round is cleanup only.
+
+## 1. Remove the temporary diagnostics
+
+Search for `TEMP DIAGNOSTICS` and remove all of it:
+
+- In `pdf/PdfParserView.tsx`: the `diag` object and every assignment to it, the `postRN({ type:
+  'diag' })` and `postRN({ type: 'env' })` calls, the `env` object, and the `console.log` handlers
+  for `diag` / `env` / `error` / `ready` in `onMessage`.
+- In `pdf/parse.ts`: the `[PDF FILE]` and `[PDF CHUNK]` `console.log` calls in `handleFileRequest`.
+
+**Keep** the `ReadableStream.prototype[Symbol.asyncIterator]` shim and its explanatory comment
+exactly as they are. It is load-bearing: without it every `getTextContent()` call throws on
+WebKit. Do not move it after the pdf.js import — it must run before.
+
+## 2. A failed parse must not masquerade as a scanned book
+
+This is a UI-state correctness issue, not a parser-quality one.
+
+Currently the sampling loop in `parsePdfDocument` swallows per-page errors with an empty `catch`,
+leaving `totalSampleChars` at 0, which is then classified as `no-text-layer`. A total parse
+failure and a genuinely scanned book therefore produce identical output — which actively
+misinforms the human about their own library.
+
+Changes:
+
+- Add `'failed'` to `BookStatus` in `pdf/types.ts`:
+  `export type BookStatus = 'ready' | 'no-text-layer' | 'failed';`
+- Add an optional `error?: string` field to `Book`.
+- In the sampling loop, count how many sampled pages threw. If **every** sampled page threw,
+  this is a failure, not a scanned document: report `status: 'failed'` with the first error
+  message. Only report `no-text-layer` when pages were read successfully and genuinely yielded
+  almost no characters.
+- Surface it plainly in the UI. On the Library screen the status text already prints
+  `Status: <status>`; when the status is `failed`, also show the error string. On the Contents
+  screen, where it currently says the book has no text layer, distinguish the two cases in plain
+  text. Keep this ugly — plain `Text`, no styling, no design. Phase 1 rules still apply.
+
+## Reminders
+
+- Do not restyle anything. No design tokens, no colours, no animation. Ugly is still correct.
+- Do not commit. Leave the work in the working tree.
+- Do not touch anything outside the project directory.
+- `npx tsc --noEmit`, `npm run lint`, and `node --test` must all pass.

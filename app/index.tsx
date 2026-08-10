@@ -106,6 +106,9 @@ export default function LibraryScreen() {
               <Text style={styles.metaText}>
                 {item.pageCount} pages | Status: {item.status}
               </Text>
+              {item.status === 'failed' && item.error ? (
+                <Text style={styles.metaText}>Error: {item.error}</Text>
+              ) : null}
               <Text style={styles.metaText}>
                 Source: {item.chapterSource} | Chapters: {item.chapters.length}
               </Text>

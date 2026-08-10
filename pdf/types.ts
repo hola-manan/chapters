@@ -12,7 +12,7 @@ export type Chapter = {
   blocks: Block[];
 };
 
-export type BookStatus = 'ready' | 'no-text-layer';
+export type BookStatus = 'ready' | 'no-text-layer' | 'failed';
 
 export type Book = {
   id: string;
@@ -20,6 +20,7 @@ export type Book = {
   addedAt: number;
   pageCount: number;
   status: BookStatus;
+  error?: string;
   chapterSource: 'outline' | 'heuristic' | 'fallback';
   chapters: Chapter[];
   sourceUri: string; // the copied PDF inside the app's document directory
