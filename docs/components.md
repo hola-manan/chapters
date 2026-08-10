@@ -39,11 +39,11 @@ per-component decisions cannot cohere without them.
 | # | Component | Status | The interesting problem in it |
 |---|---|---|---|
 | 1 | `Text` + `ReadingText` | **built** | Decided: two separate components rather than one with a variant, because `reading` obeys a different contract (it rescales, UI type doesn't) and one prop name would have hidden two behaviours. Colour is a closed `tone` prop — an arbitrary colour is unrepresentable. Split scaling policy: `Text` honours Dynamic Type capped at 1.35, `ReadingText` sets `allowFontScaling={false}` so the coming in-app size control is the only lever and the two never multiply. No `style` prop; spacing belongs to the parent, with `align`, `numberOfLines` and `flex` as the only escape valves. |
-| 2 | `Stack` | todo | Layout and the spacing scale. Whether spacing belongs to the parent or the child. |
+| 2 | `VStack` + `HStack` | **built** | Decided: two separate components (`VStack` & `HStack`) rather than one with a `direction` prop. Spacing belongs to layout primitives. Gap is a closed named vocabulary (`xxs` through `xxxl`) mapping to `space` tokens. The `dividers` boolean prop filters valid children before interleaving hairline separators. No `style` prop or rest spreading. |
 | 3 | `Surface` | todo | Themed backgrounds and elevation. How "raised" reads without shadows in dark themes. |
 | 4 | `Pressable` | todo | Press feedback: scale, opacity, timing, haptics. The most-reused component you will ever write. |
 | 5 | `Icon` | todo | Icon sizing and optical alignment against text. |
-| 6 | `Divider` | todo | Deceptively deep — separator weight and inset control list rhythm more than row height does. |
+| 6 | `Divider` | **provisional — pass still owed** | A minimal full-bleed hairline exists only to unblock `VStack`/`HStack`'s `dividers` prop. It uses `minWidth`/`minHeight` at hairline plus `alignSelf: 'stretch'`, so it renders horizontally in a `VStack` and vertically in an `HStack` with no orientation prop. **Inset and weight are undecided** — that is the real pass, and it should be run against a real chapter list, since separator inset governs list rhythm more than row height does. |
 | 7 | `Button` | todo | Hierarchy: primary / secondary / quiet, and how much a two-action app really needs. |
 | 8 | `Slider` | todo | Custom gesture handling on the UI thread. Powers the reader's live typography controls. |
 | 9 | `SegmentedControl` | todo | Theme and font pickers. Selection motion. |

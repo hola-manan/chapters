@@ -22,12 +22,9 @@ export const space = {
   sm: 8,
   md: 12,
   lg: 16,
-  xl: 20,
-  xxl: 24,
-  step32: 32,
-  step40: 40,
-  step48: 48,
-  step64: 64,
+  xl: 24,
+  xxl: 32,
+  xxxl: 48,
 } as const;
 
 export type SpaceValue = (typeof space)[keyof typeof space];

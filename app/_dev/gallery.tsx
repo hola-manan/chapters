@@ -3,7 +3,14 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { radius, space } from '../../design/index.ts';
 import type { Block } from '../../pdf/types.ts';
 import { listBooks } from '../../storage/index.ts';
-import { ReadingText, Text, ThemeProvider, useTheme } from '../../ui/index.ts';
+import {
+  HStack,
+  ReadingText,
+  Text,
+  ThemeProvider,
+  useTheme,
+  VStack,
+} from '../../ui/index.ts';
 
 const FALLBACK: string[] = [
   'Import a book and this chooser will use its actual text instead of this placeholder. Real sentences matter here: the texture of ink on paper only shows across a full paragraph, in the words you will actually be reading.',
@@ -13,6 +20,18 @@ const FALLBACK: string[] = [
 
 const VARIANTS = ['title1', 'title2', 'title3', 'body', 'subhead', 'footnote', 'caption'] as const;
 const WEIGHTS = ['regular', 'medium', 'semibold'] as const;
+
+const GAP_STEPS = [
+  { key: 'none', px: 0 },
+  { key: 'xxs', px: space.xxs },
+  { key: 'xs', px: space.xs },
+  { key: 'sm', px: space.sm },
+  { key: 'md', px: space.md },
+  { key: 'lg', px: space.lg },
+  { key: 'xl', px: space.xl },
+  { key: 'xxl', px: space.xxl },
+  { key: 'xxxl', px: space.xxxl },
+] as const;
 
 export default function Gallery() {
   const [themeMode, setThemeMode] = useState<'system' | 'light' | 'dark'>('system');
@@ -35,6 +54,7 @@ function GalleryContent({
   const theme = useTheme();
   const [paragraphs, setParagraphs] = useState<string[] | null>(null);
   const [sourceLabel, setSourceLabel] = useState('Placeholder text');
+  const [showHiddenChild, setShowHiddenChild] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -140,6 +160,133 @@ function GalleryContent({
             </View>
           </View>
         </Section>
+
+        {/* Section 5: VStack Gap Scale Ladder */}
+        <Section title="VStack Gap Scale Ladder" borderBottomColor={theme.border.subtle}>
+          <VStack gap="md">
+            {GAP_STEPS.map((step) => (
+              <View
+                key={step.key}
+                style={[
+                  styles.cardScaffolding,
+                  { backgroundColor: theme.surface.raised, borderColor: theme.border.subtle },
+                ]}
+              >
+                <VStack gap="xs">
+                  <Text variant="caption" tone="secondary" weight="semibold">
+                    {`gap="${step.key}" (${step.px}px)`}
+                  </Text>
+                  <VStack gap={step.key}>
+                    <View style={[styles.ladderItem, { backgroundColor: theme.accent.base }]} />
+                    <View style={[styles.ladderItem, { backgroundColor: theme.accent.base }]} />
+                  </VStack>
+                </VStack>
+              </View>
+            ))}
+          </VStack>
+        </Section>
+
+        {/* Section 6: HStack Alignment */}
+        <Section title="HStack Cross-Axis Alignment" borderBottomColor={theme.border.subtle}>
+          <VStack gap="md">
+            {(['center', 'start', 'end', 'baseline'] as const).map((a) => (
+              <View
+                key={a}
+                style={[
+                  styles.cardScaffolding,
+                  { backgroundColor: theme.surface.raised, borderColor: theme.border.subtle },
+                ]}
+              >
+                <VStack gap="xs">
+                  <Text variant="caption" tone="secondary" weight="semibold">
+                    {`align="${a}"`}
+                  </Text>
+                  <View
+                    style={[
+                      styles.alignBoxScaffolding,
+                      { backgroundColor: theme.surface.sunken },
+                    ]}
+                  >
+                    <HStack align={a} gap="md">
+                      <Text variant="title1" weight="semibold">
+                        Title Size
+                      </Text>
+                      <Text variant="caption" tone="secondary">
+                        Caption Size
+                      </Text>
+                    </HStack>
+                  </View>
+                </VStack>
+              </View>
+            ))}
+          </VStack>
+        </Section>
+
+        {/* Section 7: HStack Justify Between */}
+        <Section title="HStack Justify Between (Chapter Row)" borderBottomColor={theme.border.subtle}>
+          <View
+            style={[
+              styles.cardScaffolding,
+              { backgroundColor: theme.surface.raised, borderColor: theme.border.subtle },
+            ]}
+          >
+            <HStack justify="between" align="baseline">
+              <Text variant="body" weight="semibold" flex numberOfLines={1}>
+                Chapter 5: Double Joke-webs & The Hadron Joke Collider
+              </Text>
+              <Text variant="footnote" tone="secondary">
+                24 pp
+              </Text>
+            </HStack>
+          </View>
+        </Section>
+
+        {/* Section 8: VStack with Dividers */}
+        <Section title="VStack with Dividers (Conditional Child Proof)" borderBottomColor={theme.border.subtle}>
+          <VStack gap="md">
+            <Pressable
+              onPress={() => setShowHiddenChild((prev) => !prev)}
+              style={[
+                styles.chip,
+                {
+                  backgroundColor: showHiddenChild ? theme.accent.base : theme.surface.sunken,
+                  alignSelf: 'flex-start',
+                },
+              ]}
+            >
+              <Text
+                variant="footnote"
+                tone={showHiddenChild ? 'onAccent' : 'primary'}
+                weight="medium"
+              >
+                {showHiddenChild ? 'Hide Conditionally Rendered Item' : 'Show Conditionally Rendered Item'}
+              </Text>
+            </Pressable>
+            <View
+              style={[
+                styles.cardScaffolding,
+                { backgroundColor: theme.surface.raised, borderColor: theme.border.subtle },
+              ]}
+            >
+              <VStack dividers gap="sm">
+                <Text variant="body" weight="medium">
+                  Chapter 1: Call of the Wild
+                </Text>
+                {showHiddenChild && (
+                  <Text variant="body" tone="secondary">
+                    Chapter 2: [Conditionally Rendered Row]
+                  </Text>
+                )}
+                <Text variant="body" weight="medium">
+                  Chapter 3: The Wilderness
+                </Text>
+                <Text variant="body" weight="medium">
+                  Chapter 4: The Sound of Thunder
+                </Text>
+              </VStack>
+            </View>
+          </VStack>
+        </Section>
       </ScrollView>
 
       {/* Theme Selection Controls */}
@@ -221,6 +368,20 @@ const styles = StyleSheet.create({
     gap: space[12],
   },
   paragraphWrapper: { marginBottom: space[16] },
+  cardScaffolding: {
+    padding: space[16],
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  ladderItem: {
+    height: space[12],
+    borderRadius: radius.xs,
+  },
+  alignBoxScaffolding: {
+    marginTop: space[8],
+    padding: space[12],
+    borderRadius: radius.sm,
+  },
   controls: {
     paddingHorizontal: space[24],
     paddingVertical: space[16],
