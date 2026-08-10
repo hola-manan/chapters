@@ -123,6 +123,8 @@ export async function handleFileRequest(id: string, uri: string) {
     }
 
     const totalChunks = Math.ceil(totalSize / CHUNK_SIZE);
+    // TEMP DIAGNOSTICS — remove once the parse pipeline is confirmed on device
+    console.log('[PDF FILE]', JSON.stringify({ totalSize, totalChunks, uri: uri.slice(0, 120) }));
     for (let index = 0; index < totalChunks; index++) {
       const position = index * CHUNK_SIZE;
       const length = Math.min(CHUNK_SIZE, totalSize - position);
@@ -132,6 +134,13 @@ export async function handleFileRequest(id: string, uri: string) {
         position,
         length,
       });
+      // Expected base64 length for `length` bytes: 4*ceil(length/3). A mismatch means
+      // position/length were ignored and we are re-reading the whole file each chunk.
+      console.log('[PDF CHUNK]', JSON.stringify({
+        index, position, length,
+        b64len: chunkBase64.length,
+        expected: 4 * Math.ceil(length / 3),
+      }));
 
       req?.onProgress?.('reading', Math.round(((index + 1) / totalChunks) * 100));
 

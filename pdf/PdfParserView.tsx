@@ -17,6 +17,42 @@ const htmlContent = `
   window.PDF_WORKER_JS_SOURCE = ${JSON.stringify(PDF_WORKER_JS_SOURCE)};
 </script>
 <script>
+  // WebKit does not implement async iteration on ReadableStream, and pdf.js v6's
+  // PDFPageProxy.getTextContent() does 'for await (const value of readableStream)'.
+  // Without this shim every getTextContent() call throws
+  // "undefined is not a function" and the document looks like it has no text layer.
+  // Must be installed before pdf.js is imported.
+  if (typeof ReadableStream !== 'undefined' && !ReadableStream.prototype[Symbol.asyncIterator]) {
+    ReadableStream.prototype[Symbol.asyncIterator] = function (options) {
+      const preventCancel = !!(options && options.preventCancel);
+      const reader = this.getReader();
+      return {
+        next() {
+          return reader.read().then(function (result) {
+            if (result.done) {
+              reader.releaseLock();
+              return { done: true, value: undefined };
+            }
+            return { done: false, value: result.value };
+          });
+        },
+        return(value) {
+          if (!preventCancel) { reader.cancel(value); }
+          reader.releaseLock();
+          return Promise.resolve({ done: true, value: value });
+        },
+        throw(err) {
+          reader.cancel(err);
+          reader.releaseLock();
+          return Promise.reject(err);
+        },
+        [Symbol.asyncIterator]() { return this; },
+      };
+    };
+    ReadableStream.prototype.values = ReadableStream.prototype[Symbol.asyncIterator];
+  }
+</script>
+<script>
   (async function() {
     try {
       const mainBlob = new Blob([window.PDF_JS_SOURCE], { type: 'application/javascript' });
@@ -29,7 +65,16 @@ const htmlContent = `
 
       window.pdfjsLib = pdfjsLib;
 
+      // TEMP DIAGNOSTICS — can a real Worker be constructed in this origin?
+      const env = {
+        origin: String(location.origin),
+        href: String(location.href).slice(0, 60),
+        structuredClone: typeof structuredClone,
+        readableStream: typeof ReadableStream,
+        asyncIter: typeof ReadableStream !== 'undefined' && !!ReadableStream.prototype[Symbol.asyncIterator],
+      };
       if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'env', env }));
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' }));
       }
     } catch(err) {
@@ -104,17 +149,28 @@ const htmlContent = `
 
       let pdfData = null;
       let pdfUrl = uri;
+      // TEMP DIAGNOSTICS — remove once the parse pipeline is confirmed on device
+      const diag = { uri: String(uri).slice(0, 120), path: null, bytes: 0, fetchErr: null, sampleErr: null, header: null };
 
       try {
         const res = await fetch(uri);
         const buf = await res.arrayBuffer();
         pdfData = new Uint8Array(buf);
+        diag.path = 'fetch';
       } catch (fetchErr) {
+        diag.path = 'chunked';
+        diag.fetchErr = fetchErr ? (fetchErr.message || String(fetchErr)) : 'unknown';
         postRN({ id, type: 'need_file_data', uri });
         const bytes = await new Promise((resolve, reject) => {
           pendingFileRequests.set(id, { chunksMap: {}, received: 0, resolve, reject });
         });
         pdfData = bytes;
+      }
+      diag.bytes = pdfData ? pdfData.length : 0;
+      if (pdfData && pdfData.length >= 8) {
+        let h = '';
+        for (let i = 0; i < 8; i++) h += String.fromCharCode(pdfData[i]);
+        diag.header = h;
       }
 
       const loadingTask = window.pdfjsLib.getDocument({
@@ -137,16 +193,27 @@ const htmlContent = `
       }
 
       let totalSampleChars = 0;
+      let sampleItemCount = 0;
       for (const pNum of sampleIndices) {
         try {
           const page = await doc.getPage(pNum);
           const content = await page.getTextContent();
+          sampleItemCount += content.items.length;
           for (const item of content.items) {
             totalSampleChars += (item.str || '').trim().length;
           }
           page.cleanup();
-        } catch (e) {}
+        } catch (e) {
+          if (!diag.sampleErr) {
+            diag.sampleErr = 'p' + pNum + ': ' + (e ? (e.message || String(e)) : 'unknown');
+            diag.sampleStack = e && e.stack ? String(e.stack).slice(0, 400) : null;
+          }
+        }
       }
+      diag.chars = totalSampleChars;
+      diag.items = sampleItemCount;
+      diag.numPages = numPages;
+      postRN({ id, type: 'diag', diag });
 
       let rawOutline = [];
       try {
@@ -267,6 +334,22 @@ export function PdfParserView() {
   const onMessage = (event: { nativeEvent: { data: string } }) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'env') {
+        // TEMP DIAGNOSTICS — remove once the parse pipeline is confirmed on device
+        console.log('[PDF ENV]', JSON.stringify(data.env));
+        return;
+      }
+      if (data.type === 'diag') {
+        // TEMP DIAGNOSTICS — remove once the parse pipeline is confirmed on device
+        console.log('[PDF DIAG]', JSON.stringify(data.diag));
+        return;
+      }
+      if (data.type === 'error') {
+        console.log('[PDF ERROR]', data.error);
+      }
+      if (data.type === 'ready') {
+        console.log('[PDF READY] pdf.js loaded in WebView');
+      }
       if (data.type === 'need_file_data' && data.id && data.uri) {
         handleFileRequest(data.id, data.uri);
       } else {
