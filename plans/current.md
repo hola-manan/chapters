@@ -1,341 +1,145 @@
-# Phase 1 — The ugly skeleton
+# Phase 2 — Tier 1 design tokens
 
 ## Goal
 
-Build the app end-to-end, **deliberately undesigned**. Import a real PDF, parse it, detect
-chapters, store it, list books, list chapters, read chapter text. It must genuinely work on a
-physical iPhone through Expo Go.
+Create the `design/` layer: the portable foundation every component reads from. This is **only**
+tokens and themes. Do not build components, do not touch the existing screens, do not restyle
+anything. The screens stay ugly until their own component passes.
 
-**Nothing you write in the UI layer is meant to survive.** The visual design is decided later,
-by the human, component by component. This phase exists so that those later decisions are made
-against real book text, real chapter titles, and real title lengths instead of placeholder
-content. Resist every urge to make it look good.
+## The hard constraint
 
-Read `GEMINI.md` and `docs/corpus-findings.md` first. `corpus-findings.md` records measured
-facts about the actual test PDFs and directly determines what the parser must handle.
+**No file under `design/` may import anything at all.** Not `react`, not `react-native`, not any
+`expo*` package, not a third-party library. Every file exports plain TypeScript values and types.
 
-## Explicit non-goals
+- A colour is `'#142621'`, never a `StyleSheet` entry.
+- A motion token is `{ damping, stiffness, mass }` or `{ duration, easing }`, never an `Animated`
+  value or a Reanimated helper.
+- A space token is the number `16`, never a style object.
 
-Do **not** build any of these. They are later phases and building them now actively harms the
-project:
+This is what lets `design/` be copied into an unrelated web project untouched. It is the single
+most important property of this layer — enforce it with the test in section 7.
 
-- No design tokens, no theme system, no `design/` or `ui/` directories. Those are Phase 2+.
-- No colours beyond React Native defaults. No custom fonts. No shadows, gradients, or radii.
-- No animations, no transitions, no gestures, no haptics.
-- No skeletons, spinners beyond a bare `ActivityIndicator`, no empty-state design.
-- No figure/image extraction from PDFs.
-- No highlighting, search, bookmarks, sharing, settings, or reading preferences.
-- Do not style anything beyond the minimum needed to see the content and tap the targets.
+## Decisions already made by the human — transcribe, do not reinterpret
 
-Use plain `View`, `Text`, `Pressable`, `FlatList`, and default styling. Ugly is correct here.
+| Decision | Value |
+|---|---|
+| Reading face | Source Serif 4 (`SourceSerif4_400Regular`, `SourceSerif4_600SemiBold`) |
+| Reading size | 19pt base |
+| Reading leading | 1.45 (tight; correct for the ~40-character phone measure) |
+| UI face | system (SF Pro) — do not load a font for UI |
+| Paper (light) | `#F7F8FA` cool off-white |
+| Ink (light) | `#142621` forest |
+| Muted ink (light) | `#5C7169` |
+| Accent | `#0F766E` teal |
+| Motion character | springy and physical, iOS-like, slight overshoot |
+| Theme order | light designed first, dark derived from it |
 
----
+Direction, for judgement calls: *a quiet container whose entire quality is in its typography.
+Nothing in the reader announces the app. Everything in the reader is measured.* The app is a
+short-form content viewer (~5 minute reads), not a book reader.
 
-## 1. Types — `pdf/types.ts`
+## 1. `design/tokens/color.ts` — primitives
 
-```ts
-export type Block =
-  | { type: 'heading'; level: 1 | 2; text: string }
-  | { type: 'paragraph'; text: string }
-  | { type: 'pagebreak'; page: number }
-  | { type: 'figure'; source: string; caption?: string }; // reserved, never emitted in Phase 1
+Raw palette only, no semantics. Name by what the colour *is*.
 
-export type Chapter = {
-  id: string;
-  title: string;
-  startPage: number;   // 1-based, inclusive
-  endPage: number;     // 1-based, inclusive
-  blocks: Block[];
-};
+- A forest ink ramp: at least 5 steps from `#142621` up to a pale tint, for text, borders and
+  subtle fills. Derive them as genuine dark-green-family colours, not greys.
+- Neutrals: the cool paper `#F7F8FA` plus a small cool-grey ramp for borders and sunken surfaces.
+- A teal accent ramp: `#0F766E` base, a darker pressed step, and a pale tint for track fills and
+  selection backgrounds.
+- Pure `#FFFFFF`, and a near-black ground for the dark theme.
 
-export type BookStatus = 'ready' | 'no-text-layer';
+## 2. `design/themes.ts` — semantic layer
 
-export type Book = {
-  id: string;
-  title: string;
-  addedAt: number;
-  pageCount: number;
-  status: BookStatus;
-  chapterSource: 'outline' | 'heuristic' | 'fallback';
-  chapters: Chapter[];
-  sourceUri: string;   // the copied PDF inside the app's document directory
-};
+Two themes, `light` and `dark`, with **identical key sets** and a shared `Theme` type. Names must
+describe role, never appearance — `text.primary`, not `forest900`. Adding a third theme later must
+cost nothing.
+
+Required keys, at minimum:
+
+```
+surface.page          the reading ground
+surface.raised        cards, sheets
+surface.sunken        wells, track backgrounds
+text.primary          body copy
+text.secondary        metadata, captions
+text.tertiary         the faintest legible step
+text.onAccent         text placed on an accent fill
+border.subtle         hairlines between rows
+border.strong         deliberate divisions
+accent.base           the single accent
+accent.pressed        its pressed state
+accent.tint           a pale wash of it
+state.pressOverlay    overlay colour for press feedback
 ```
 
-`status: 'no-text-layer'` is a **first-class outcome, not an error**. Two of the six real test
-books are scanned page images with no extractable text. When this is detected, still produce a
-valid `Book` with its chapters (they may come from the outline — chapter structure and text
-availability are independent) and with empty `blocks`.
+Light theme uses the decided values above. **Derive** the dark theme: a near-black ground with a
+faint green cast so it stays in the same family, ink inverted to a pale warm-neutral rather than
+pure white, and the accent raised in lightness — `#0F766E` is too dark to sit on a dark ground and
+will fail legibility unchanged. Do not simply invert the light values; inversion always produces a
+bad dark theme. Add a comment marking the dark theme as derived and not yet reviewed on device.
 
-## 2. Pure parsing logic — `pdf/blocks.ts` and `pdf/chapters.ts`
+## 3. `design/tokens/type.ts` — two independent scales
 
-These two files must be **pure TypeScript over plain data**, with **no imports** from
-`pdfjs-dist`, `react`, `react-native`, or `expo*`. This is what makes them testable in Node
-without a phone. Define your own minimal input type, e.g.:
+The central typographic idea: **UI type and reading type are separate systems and must not share a
+scale.**
 
-```ts
-export type TextRun = {
-  str: string;
-  x: number; y: number;      // from the transform matrix: e[4], f[5]
-  size: number;              // sqrt(b² + d²) from the transform matrix
-  fontName: string;
-  page: number;              // 1-based
-};
-```
+- `ui`: a fixed ramp for labels, titles and chrome — roughly 11 / 13 / 15 / 17 / 20 / 24 / 28,
+  each with its own line height and letter-spacing. For the system font.
+- `reading`: a single `baseSize` of 19 and `leading` of 1.45, plus a `scale` multiplier intended to
+  become user-adjustable later. Line height must be **derived** (`round(size * leading)`), never
+  listed as a constant — the relationship is the point.
+- Font family constants: the two Source Serif 4 names for reading. For UI use `undefined`/`null` to
+  mean "system default" — do not invent a fontFamily string for SF Pro.
 
-### `blocks.ts` — `runsToBlocks(runs: TextRun[]): Block[]`
+## 4. `design/tokens/space.ts`
 
-In order:
+One 4-based scale, roughly 2, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64. Export as a named object and
+keep the raw numbers accessible. Every gap in the app comes from here.
 
-1. **Strip running headers/footers.** Group runs by rounded y-position; any text that recurs at
-   the same y on more than ~50% of pages is chrome (book title, chapter title, page number).
-   Remove it. This is required, not polish — in `The Royal Road to Card Magic` the largest text
-   runs in the document are the repeating title and author lines.
-2. **Group runs into lines** by y-proximity within a page.
-3. **Join lines into paragraphs.** Break on a vertical gap noticeably larger than the modal line
-   gap, or on a first-line indent change.
-4. **De-hyphenate** words split across a line end (`inter-` + `esting` → `interesting`) — only
-   when the next line starts lowercase.
-5. Emit a `pagebreak` block at each page boundary.
+## 5. `design/tokens/motion.ts`
 
-### `chapters.ts`
+Springy and physical. Provide:
 
-- `bodyFontSize(runs: TextRun[]): number` — quantize sizes into ~0.5pt buckets, weight each
-  bucket by **character count** (not run count), return the modal bucket. `Mathematics and
-  Humor` fragments its body text across 10.0/10.1/10.2/10.3/10.4; a naive mode gets this wrong.
-- `detectChapters(...)` — three strategies, in confidence order, never failing:
-  1. **Outline.** If the document has one, use it. Map each entry to a start page and derive
-     `endPage` from the next entry's start. Flatten to top-level entries only. Set
-     `chapterSource: 'outline'`.
-  2. **Heuristic.** Score candidate headings on: size > 1.25× body size, run length < ~80 chars,
-     vertical whitespace above and below, position near top of page, starts a page, bold-ish
-     `fontName`, and title pattern `/^(chapter|part|section|[IVXLC]+\.?|\d+\.?)\b/i`. Note that
-     **size alone is not sufficient** — two corpus books have cleanly structured chapters with
-     no size difference at all. Set `chapterSource: 'heuristic'`.
-  3. **Fallback.** One chapter spanning the whole document, titled after the book. Set
-     `chapterSource: 'fallback'`.
+- Spring configs as plain objects (`{ damping, stiffness, mass }`) in at least three characters:
+  `gentle`, `default`, `snappy`. These are the primary vocabulary — this app animates with springs,
+  not durations.
+- Durations (`instant` 90, `fast` 160, `base` 220, `slow` 360) with cubic-bezier easing arrays, for
+  opacity transitions where a spring makes no sense.
+- A `reducedMotion` fallback duration.
 
-## 3. pdf.js integration — `pdf/PdfParser.dom.tsx` and `pdf/parse.ts`
+Keep these as data. Reanimated bindings belong in `ui/`, not here.
 
-`pdf/parse.ts` exposes exactly one function:
+## 6. `design/tokens/radius.ts` and `design/tokens/shadow.ts`
 
-```ts
-export async function parsePdf(
-  uri: string,
-  onProgress?: (stage: string, pct: number) => void
-): Promise<Book>;
-```
+Radius: `none` 0 through `pill` 999, a small set. Shadow: plain data
+(`{ offsetY, blur, opacity }`), not platform style objects, and keep it minimal — this design leans
+on hairlines and lightness rather than elevation.
 
-**Nothing else in the app may import `pdfjs-dist`.** All of it lives behind this function, so the
-engine underneath can be swapped without touching the app.
+## 7. Enforce the no-import rule with a test
 
-Run pdf.js inside a WebView via an Expo DOM component (`'use dom'`), because pdf.js needs a DOM
-that React Native does not have. Implementation notes, all of which were verified against the
-real corpus:
+Add a Node test under `test/` that reads every `.ts` file under `design/` and fails if any contains
+an `import` or `require` statement. Without this the rule silently rots. It must run under the
+existing `node --test`.
 
-- Use the **legacy** build: `pdfjs-dist/legacy/build/pdf.mjs`.
-- Set `GlobalWorkerOptions.workerSrc` to the bundled worker asset. If that cannot be resolved
-  inside the WebView, disable the worker instead and parse on the WebView's main thread — the
-  WebView is invisible, so there is no visible jank. Do not leave it unset; pdf.js throws.
-- Pass `standardFontDataUrl` pointing at `pdfjs-dist/standard_fonts/`, or some documents fail to
-  extract text correctly.
-- Destroy through the **loading task** (`task.destroy()`), not the document proxy — `doc.destroy`
-  does not exist in pdf.js v6.
-- **Do not base64 an entire PDF into the WebView.** `Card College 1` is ~300MB. Pass the file URI
-  and fetch it inside the WebView, or stream it. A naive base64 round-trip will crash the app.
-- Detect the no-text-layer case early: sample ~10 pages spread across the document, sum the
-  extracted characters, and if it is under ~200 return `status: 'no-text-layer'` without
-  attempting full extraction.
-- Report progress through `onProgress` with stages: `reading`, `parsing`, `detecting`, `done`.
+## 8. `design/index.ts`
 
-**If `'use dom'` proves unreliable in Expo Go**, fall back to a plain `react-native-webview`
-loading a bundled HTML asset with pdf.js, communicating over `postMessage`. Both approaches stay
-entirely inside `pdf/`. `react-native-webview` is already installed.
+Barrel exporting the tokens, the themes, and the `Theme` type.
 
-## 4. Storage — `storage/`
+## Explicitly not in this phase
 
-- `files.ts` — copy the picked PDF to `${documentDirectory}books/<id>/source.pdf`; write the
-  parsed result to `book.json` beside it. Use the SDK 54 `expo-file-system` API.
-- `library.ts` — a `library.json` index of book summaries; `listBooks()`, `getBook(id)`,
-  `addBook(book)`, `removeBook(id)`.
-- `prefs.ts` — reading position per chapter: `{ chapterId, blockIndex }`. Save and restore only;
-  no UI for it yet.
-
-## 5. Screens — all deliberately plain
-
-- `app/index.tsx` — Library. A `FlatList` of book titles, each tappable. One "Import a PDF"
-  button using `expo-document-picker` (`type: 'application/pdf'`). While parsing, show the book
-  title with a bare `ActivityIndicator` and the current progress stage as plain text. Show the
-  book's `chapterSource` and `status` as plain text — this is diagnostic information the human
-  needs while evaluating detection quality.
-- `app/book/[id]/index.tsx` — Contents. A `FlatList` of chapter titles with page ranges, each
-  tappable. If `status === 'no-text-layer'`, say so in plain text at the top.
-- `app/book/[id]/[chapter].tsx` — Reader. A `FlatList` over `Chapter.blocks` rendering headings
-  and paragraphs as plain `Text`, ignoring `pagebreak`. Plain "Previous" / "Next" buttons at the
-  bottom to move between chapters. Persist and restore scroll position via `prefs.ts`.
-- `app/_dev/gallery.tsx` — create the route with a placeholder screen. It is the workbench for
-  later phases. Leave it essentially empty; link to it from the Library screen so it is reachable.
-
-## 6. Tests — Node-side, no phone required
-
-Using the built-in Node test runner (`node --test`), against `pdf/blocks.ts` and
-`pdf/chapters.ts` only. Node 24 runs TypeScript directly via type stripping; if that proves
-awkward, keep the test files plain `.mjs` importing compiled output — do **not** add a test
-framework dependency.
-
-Cover:
-- `bodyFontSize` picks the right bucket when sizes fragment across 10.0–10.4.
-- Running headers repeating at the same y across pages are stripped.
-- De-hyphenation joins across line ends and does not join across a sentence end.
-- `detectChapters` prefers the outline, falls back to heuristics, then to a single chapter, and
-  never returns an empty chapter list.
-
-Write the fixtures as small hand-built `TextRun[]` arrays inside the test files. Do not commit
-PDF-derived fixture files and do not read from `pdfs/`.
-
-## 7. Done means
-
-- `npx tsc --noEmit` passes.
-- `npm run lint` passes.
-- `node --test` passes.
-- The three screens exist and are navigable.
-
-## Reminders
-
-- Do not commit. Leave everything in the working tree.
-- Do not touch anything outside this project directory. If you find something is needed outside
-  it, list it at the end of your response instead of doing it.
-- Do not modify or read from `pdfs/`.
-- Do not upgrade Expo or any `expo-*` package.
-
----
-
-# Fixes — round 1
-
-Phase 1 is structurally correct: the screens, storage, pure parsing functions, and Node tests are
-all in the right shape, typecheck and lint pass, all four tests pass, and Metro bundles the app.
-Fix the following defects. **Do not restyle anything, do not add features, do not touch the UI
-beyond what a fix requires.** Ugly is still correct.
-
-## 1. The PDF is never copied to permanent storage — books will break
-
-`storage/files.ts` exports `saveBookSource`, but **nothing ever calls it**. `pdf/parse.ts` sets
-`sourceUri: req.uri`, which is the `expo-document-picker` cache copy. iOS purges the cache
-directory, so every imported book's `sourceUri` becomes a dangling path.
-
-Fix: after a successful parse, copy the PDF into the book's directory via `saveBookSource(id, uri)`
-and set `sourceUri` to the permanent path it returns, before `saveBookData` writes `book.json`.
-Do this where the book is persisted, not inside the WebView message handler.
-
-## 2. A 300MB PDF will crash the app — the base64 fallback is live
-
-The plan said not to base64 an entire PDF across the bridge. `pdf/parse.ts:82` does exactly that
-via `readAsStringAsync(..., Base64)`, and it is not dead code: it is the fallback when the
-WebView's `fetch(uri)` fails, which is the *likely* path for a `file://` URI in WKWebView.
-`Card College 1` is ~300MB, which becomes a ~400MB base64 string in JS memory and then a single
-`postMessage` payload. This will hard-crash.
-
-Fix: keep the `fetch(uri)` fast path, but replace the fallback with a **chunked** transfer. Read
-the file in slices using the `position` and `length` options of
-`FileSystem.readAsStringAsync` (legacy API supports both), post each chunk as its own message
-with a sequence number, and reassemble into a single `Uint8Array` inside the WebView before
-calling `getDocument`. Use a chunk size around 4MB of base64. Report `reading` progress as
-chunks arrive, so the existing progress UI shows movement on large files.
-
-## 3. The extracted runs are returned in one giant message
-
-`parsePdfDocument` accumulates every text run for the whole document and posts them in a single
-`result` message. `The Royal Road to Card Magic` is 436 pages; that payload is tens of megabytes
-of JSON serialized through `ReactNativeWebView.postMessage`.
-
-Fix: stream the runs. Post a `runs_chunk` message every ~25 pages carrying only that batch, and
-accumulate them in `pdf/parse.ts` against the pending request. The final `result` message should
-carry `numPages`, `status`, and `outline` only — not `runs`. Chapter detection still happens in
-`parse.ts` once all chunks have arrived.
-
-## 4. The pdf.js worker is not actually configured
-
-`PdfParserView.tsx:24` sets `GlobalWorkerOptions.workerSrc = ''`. An empty string is not a way to
-disable the worker; pdf.js will fall through to its fake-worker path or attempt to resolve a
-default worker URL, depending on build.
-
-Fix: use the same blob-URL technique already used for the main library. Add the contents of
-`pdfjs-dist/legacy/build/pdf.worker.mjs` as a second exported string alongside `PDF_JS_SOURCE`,
-build a `Blob` + `URL.createObjectURL` from it, and assign that to
-`GlobalWorkerOptions.workerSrc` before any `getDocument` call. It must never attempt a network
-request — the app has to parse offline.
-
-## 5. A parse can fire before pdf.js has finished loading
-
-The WebView posts `{ type: 'ready' }` after pdf.js loads, but nothing consumes it —
-`handleParserMessage` drops it because it has no `id`. Instead `parsePdf` guesses with a 500ms
-`setTimeout`. On a cold start or a slow device, `parsePdfDocument` runs while `window.pdfjsLib`
-is still undefined.
-
-Fix: track readiness in `pdf/parse.ts` from the `ready` message. Queue any parse commands
-received before ready and flush them once it arrives. Remove the 500ms timeout guess. Keep a
-real timeout only as a genuine failure path (e.g. 30s without `ready` rejects with a clear error).
-
-## Not in scope for this round
-
-- `expo-file-system/legacy` is acceptable for now; the chunked read in fix 2 depends on it.
-  Leave it, but add a one-line comment noting it is deliberate.
-- Do not change the `.ts` import extensions — Metro resolves them and the app bundles.
+- No `ui/` directory, no components, no `ThemeProvider`, no hooks.
+- No changes to `app/`, `features/`, `pdf/` or `storage/`.
+- Do **not** modify `app/_dev/gallery.tsx` — it is the human's active chooser.
+- No styling of existing screens.
 
 ## Done means
 
-`npx tsc --noEmit`, `npm run lint`, and `node --test` all pass, and the app still bundles with
-`npx expo export --platform ios`. Add a Node test covering the runs-chunk accumulation if it can
-be done without importing React Native.
-
----
-
-# Fixes — round 2 (cleanup only)
-
-Phase 1 now works on device. Scope note from the human: **PDF parsing quality is explicitly out
-of scope for this project.** Do not tune chapter-detection heuristics, do not improve paragraph
-joining, do not touch `blocks.ts` or `chapters.ts` logic. The bar is "content is present"; which
-text the engine picks is not this project's concern. This round is cleanup only.
-
-## 1. Remove the temporary diagnostics
-
-Search for `TEMP DIAGNOSTICS` and remove all of it:
-
-- In `pdf/PdfParserView.tsx`: the `diag` object and every assignment to it, the `postRN({ type:
-  'diag' })` and `postRN({ type: 'env' })` calls, the `env` object, and the `console.log` handlers
-  for `diag` / `env` / `error` / `ready` in `onMessage`.
-- In `pdf/parse.ts`: the `[PDF FILE]` and `[PDF CHUNK]` `console.log` calls in `handleFileRequest`.
-
-**Keep** the `ReadableStream.prototype[Symbol.asyncIterator]` shim and its explanatory comment
-exactly as they are. It is load-bearing: without it every `getTextContent()` call throws on
-WebKit. Do not move it after the pdf.js import — it must run before.
-
-## 2. A failed parse must not masquerade as a scanned book
-
-This is a UI-state correctness issue, not a parser-quality one.
-
-Currently the sampling loop in `parsePdfDocument` swallows per-page errors with an empty `catch`,
-leaving `totalSampleChars` at 0, which is then classified as `no-text-layer`. A total parse
-failure and a genuinely scanned book therefore produce identical output — which actively
-misinforms the human about their own library.
-
-Changes:
-
-- Add `'failed'` to `BookStatus` in `pdf/types.ts`:
-  `export type BookStatus = 'ready' | 'no-text-layer' | 'failed';`
-- Add an optional `error?: string` field to `Book`.
-- In the sampling loop, count how many sampled pages threw. If **every** sampled page threw,
-  this is a failure, not a scanned document: report `status: 'failed'` with the first error
-  message. Only report `no-text-layer` when pages were read successfully and genuinely yielded
-  almost no characters.
-- Surface it plainly in the UI. On the Library screen the status text already prints
-  `Status: <status>`; when the status is `failed`, also show the error string. On the Contents
-  screen, where it currently says the book has no text layer, distinguish the two cases in plain
-  text. Keep this ugly — plain `Text`, no styling, no design. Phase 1 rules still apply.
+`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, including the new import-guard test.
+Nothing in the running app changes appearance, because nothing consumes these tokens yet.
 
 ## Reminders
 
-- Do not restyle anything. No design tokens, no colours, no animation. Ugly is still correct.
 - Do not commit. Leave the work in the working tree.
 - Do not touch anything outside the project directory.
-- `npx tsc --noEmit`, `npm run lint`, and `node --test` must all pass.
+- Do not upgrade Expo or any `expo-*` package.
