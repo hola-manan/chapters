@@ -1,60 +1,9 @@
-import { useFonts } from 'expo-font';
-import { Literata_400Regular, Literata_600SemiBold } from '@expo-google-fonts/literata';
-import { Newsreader_400Regular, Newsreader_600SemiBold } from '@expo-google-fonts/newsreader';
-import {
-  SourceSerif4_400Regular,
-  SourceSerif4_600SemiBold,
-} from '@expo-google-fonts/source-serif-4';
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { radius, space } from '../../design/index.ts';
 import type { Block } from '../../pdf/types.ts';
 import { listBooks } from '../../storage/index.ts';
-
-/**
- * TEMPORARY CHOOSER — not a component, not a design.
- * Puts candidate tokens in front of a real eye, in real book text, on real hardware.
- * Replaced by the actual component gallery once the tokens are decided.
- *
- * Decided so far: Source Serif 4 · 19pt · 1.45 leading · cool paper · one restrained accent.
- * Open: ink colour, accent colour.
- */
-
-const FACES = [
-  { key: 'literata', label: 'Literata', regular: 'Literata_400Regular', semi: 'Literata_600SemiBold' },
-  { key: 'newsreader', label: 'Newsreader', regular: 'Newsreader_400Regular', semi: 'Newsreader_600SemiBold' },
-  { key: 'source', label: 'Source Serif', regular: 'SourceSerif4_400Regular', semi: 'SourceSerif4_600SemiBold' },
-] as const;
-
-const PAPERS = [
-  { key: 'cool', label: 'Cool', bg: '#F7F8FA' },
-  { key: 'warm', label: 'Warm', bg: '#FAF8F4' },
-  { key: 'white', label: 'White', bg: '#FFFFFF' },
-] as const;
-
-// Safe near-blacks first, then genuinely bold inks. Historically printed ink was
-// rarely pure black — blue-blacks and brown-blacks are the traditional choices.
-const INKS = [
-  { key: 'blueblack', label: 'Blue-black', ink: '#12171F', muted: '#6B7280' },
-  { key: 'neutral', label: 'Neutral', ink: '#15171A', muted: '#6E7176' },
-  { key: 'navy', label: 'Ink navy', ink: '#16233A', muted: '#5E6B80' },
-  { key: 'teal', label: 'Deep teal', ink: '#0E2126', muted: '#5A6E72' },
-  { key: 'forest', label: 'Forest', ink: '#142621', muted: '#5C7169' },
-  { key: 'espresso', label: 'Espresso', ink: '#241C16', muted: '#75695E' },
-  { key: 'plum', label: 'Plum', ink: '#1E1424', muted: '#6F6076' },
-  { key: 'black', label: 'True black', ink: '#000000', muted: '#6E6E73' },
-] as const;
-
-const ACCENTS = [
-  { key: 'signal', label: 'Signal blue', color: '#2563EB' },
-  { key: 'ink', label: 'Ink blue', color: '#3A5A8C' },
-  { key: 'rust', label: 'Rust', color: '#B4530F' },
-  { key: 'crimson', label: 'Crimson', color: '#A81E2D' },
-  { key: 'teal', label: 'Teal', color: '#0F766E' },
-  { key: 'violet', label: 'Violet', color: '#6D40C4' },
-] as const;
-
-const SIZES = [16, 17, 18, 19, 20] as const;
-const LEADINGS = [1.35, 1.45, 1.55, 1.65, 1.75] as const;
+import { ReadingText, Text, ThemeProvider, useTheme } from '../../ui/index.ts';
 
 const FALLBACK: string[] = [
   'Import a book and this chooser will use its actual text instead of this placeholder. Real sentences matter here: the texture of ink on paper only shows across a full paragraph, in the words you will actually be reading.',
@@ -62,23 +11,28 @@ const FALLBACK: string[] = [
   'Judge the accent by how rarely you notice it, not by how much you like the colour. It is the only colour on the screen, so it will always draw the eye — the question is whether it draws it somewhere useful.',
 ];
 
-export default function Gallery() {
-  const [fontsLoaded] = useFonts({
-    Literata_400Regular,
-    Literata_600SemiBold,
-    Newsreader_400Regular,
-    Newsreader_600SemiBold,
-    SourceSerif4_400Regular,
-    SourceSerif4_600SemiBold,
-  });
+const VARIANTS = ['title1', 'title2', 'title3', 'body', 'subhead', 'footnote', 'caption'] as const;
+const WEIGHTS = ['regular', 'medium', 'semibold'] as const;
 
-  const [mode, setMode] = useState<'read' | 'inks'>('read');
-  const [faceIdx, setFaceIdx] = useState(2); // Source Serif 4 — decided
-  const [paperIdx, setPaperIdx] = useState(0); // Cool — decided
-  const [inkIdx, setInkIdx] = useState(0);
-  const [accentIdx, setAccentIdx] = useState(0);
-  const [sizeIdx, setSizeIdx] = useState(3); // 19pt — decided
-  const [leadIdx, setLeadIdx] = useState(1); // 1.45 — decided
+export default function Gallery() {
+  const [themeMode, setThemeMode] = useState<'system' | 'light' | 'dark'>('system');
+  const override = themeMode === 'system' ? undefined : themeMode;
+
+  return (
+    <ThemeProvider themeOverride={override}>
+      <GalleryContent themeMode={themeMode} setThemeMode={setThemeMode} />
+    </ThemeProvider>
+  );
+}
+
+function GalleryContent({
+  themeMode,
+  setThemeMode,
+}: {
+  themeMode: 'system' | 'light' | 'dark';
+  setThemeMode: (mode: 'system' | 'light' | 'dark') => void;
+}) {
+  const theme = useTheme();
   const [paragraphs, setParagraphs] = useState<string[] | null>(null);
   const [sourceLabel, setSourceLabel] = useState('Placeholder text');
 
@@ -106,153 +60,177 @@ export default function Gallery() {
     })();
   }, []);
 
-  const face = FACES[faceIdx];
-  const paper = PAPERS[paperIdx];
-  const ink = INKS[inkIdx];
-  const accent = ACCENTS[accentIdx];
-  const size = SIZES[sizeIdx];
-  const leading = LEADINGS[leadIdx];
-  const body = paragraphs ?? FALLBACK;
-
-  const textStyle = useMemo(
-    () => ({
-      fontFamily: face.regular,
-      fontSize: size,
-      lineHeight: Math.round(size * leading),
-      color: ink.ink,
-    }),
-    [face, size, leading, ink]
-  );
-
-  if (!fontsLoaded) {
-    return (
-      <View style={styles.loading}>
-        <Text>Loading faces…</Text>
-      </View>
-    );
-  }
+  const bodyParagraphs = paragraphs ?? FALLBACK;
 
   return (
-    <View style={[styles.root, { backgroundColor: paper.bg }]}>
-      <ScrollView
-        style={styles.page}
-        contentContainerStyle={styles.pageContent}
-        showsVerticalScrollIndicator={false}
-      >
-        {mode === 'read' ? (
-          <>
-            <Text style={[styles.eyebrow, { color: ink.muted }]}>CHAPTER 3</Text>
-            <Text style={[styles.title, { fontFamily: face.semi, color: ink.ink }]}>
-              {sourceLabel}
-            </Text>
-            {body.map((p, i) => (
-              <Text key={i} style={[textStyle, styles.para]}>
-                {p}
+    <View style={[styles.root, { backgroundColor: theme.surface.page }]}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text variant="caption" tone="tertiary" weight="semibold">
+            COMPONENT GALLERY
+          </Text>
+          <Text variant="title1" weight="semibold">
+            Typographic Specimen
+          </Text>
+        </View>
+
+        {/* Section 1: Text Variants & Weights */}
+        <Section title="UI Typography Variants & Weights" borderBottomColor={theme.border.subtle}>
+          {VARIANTS.map((v) => (
+            <View key={v} style={styles.variantGroup}>
+              <Text variant="caption" tone="tertiary" weight="medium">
+                {v.toUpperCase()}
               </Text>
+              {WEIGHTS.map((w) => (
+                <Text key={w} variant={v} weight={w}>
+                  {v} · {w}
+                </Text>
+              ))}
+            </View>
+          ))}
+        </Section>
+
+        {/* Section 2: Color Tones */}
+        <Section title="Color Tones" borderBottomColor={theme.border.subtle}>
+          <View style={styles.group}>
+            <Text tone="primary">Primary tone — high contrast text</Text>
+            <Text tone="secondary">Secondary tone — supporting labels and metadata</Text>
+            <Text tone="tertiary">Tertiary tone — disabled states or subtle captions</Text>
+            <Text tone="accent" weight="semibold">
+              Accent tone — interactive text and links
+            </Text>
+            <View style={[styles.onAccentContainer, { backgroundColor: theme.accent.base }]}>
+              <Text tone="onAccent" weight="semibold">
+                onAccent tone — readable text on accent surface
+              </Text>
+            </View>
+          </View>
+        </Section>
+
+        {/* Section 3: Truncation & Flex */}
+        <Section title="Row Truncation (flex & numberOfLines)" borderBottomColor={theme.border.subtle}>
+          <View
+            style={[
+              styles.truncationCard,
+              { backgroundColor: theme.surface.raised, borderColor: theme.border.subtle },
+            ]}
+          >
+            <Text variant="body" weight="semibold" numberOfLines={1} flex>
+              Chapter 12: The Extraordinary and Unabridged History of the Empire of the Setting Sun
+            </Text>
+            <Text variant="footnote" tone="secondary">
+              14 pp
+            </Text>
+          </View>
+        </Section>
+
+        {/* Section 4: ReadingText */}
+        <Section title={`Reading Scale (${sourceLabel})`} borderBottomColor={theme.border.subtle}>
+          <View style={styles.group}>
+            {bodyParagraphs.map((p, i) => (
+              <View key={i} style={styles.paragraphWrapper}>
+                <ReadingText tone="primary">{p}</ReadingText>
+              </View>
             ))}
-
-            {/* The accent, shown in use rather than as a swatch — it is the only
-                colour on the screen, so this is the only honest way to judge it. */}
-            <View style={[styles.rule, { backgroundColor: ink.muted }]} />
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { backgroundColor: accent.color }]} />
+            <View style={styles.paragraphWrapper}>
+              <ReadingText tone="secondary">
+                Secondary tone reading text — subtle body copy or secondary passages.
+              </ReadingText>
             </View>
-            <Text style={[styles.meta, { color: ink.muted }]}>4 min left</Text>
-            <Text style={[styles.nextLink, { fontFamily: face.semi, color: accent.color }]}>
-              Next — Chapter 4
-            </Text>
-            <Text style={[styles.footnote, { color: ink.muted }]}>
-              {face.label} · {size}pt · {leading.toFixed(2)} · {ink.label} on {paper.label} ·{' '}
-              {accent.label}
-            </Text>
-          </>
-        ) : (
-          // Same passage in every ink, so the colours can be compared directly
-          // instead of from memory.
-          INKS.map((k) => (
-            <View key={k.key} style={styles.compareBlock}>
-              <Text style={[styles.compareLabel, { color: k.muted }]}>{k.label}</Text>
+          </View>
+        </Section>
+      </ScrollView>
+
+      {/* Theme Selection Controls */}
+      <View
+        style={[
+          styles.controls,
+          { backgroundColor: theme.surface.raised, borderTopColor: theme.border.subtle },
+        ]}
+      >
+        <Text variant="caption" tone="secondary" weight="semibold">
+          THEME OVERRIDE
+        </Text>
+        <View style={styles.chipRow}>
+          {(['system', 'light', 'dark'] as const).map((m) => (
+            <Pressable
+              key={m}
+              onPress={() => setThemeMode(m)}
+              style={[
+                styles.chip,
+                {
+                  backgroundColor:
+                    themeMode === m ? theme.accent.base : theme.surface.sunken,
+                },
+              ]}
+            >
               <Text
-                style={{
-                  fontFamily: face.regular,
-                  fontSize: size,
-                  lineHeight: Math.round(size * leading),
-                  color: k.ink,
-                }}
+                variant="footnote"
+                tone={themeMode === m ? 'onAccent' : 'primary'}
+                weight="medium"
               >
-                {body[0]}
+                {m.charAt(0).toUpperCase() + m.slice(1)}
               </Text>
-            </View>
-          ))
-        )}
-      </ScrollView>
-
-      <ScrollView style={styles.controls} contentContainerStyle={styles.controlsContent}>
-        <Row label="Mode" options={['Read', 'Inks']} index={mode === 'read' ? 0 : 1} onChange={(i) => setMode(i === 0 ? 'read' : 'inks')} />
-        <Row label="Ink" options={INKS.map((i) => i.label)} index={inkIdx} onChange={setInkIdx} />
-        <Row label="Accent" options={ACCENTS.map((a) => a.label)} index={accentIdx} onChange={setAccentIdx} />
-        <Row label="Paper" options={PAPERS.map((p) => p.label)} index={paperIdx} onChange={setPaperIdx} />
-        <Row label="Face" options={FACES.map((f) => f.label)} index={faceIdx} onChange={setFaceIdx} />
-        <Row label="Size" options={SIZES.map(String)} index={sizeIdx} onChange={setSizeIdx} />
-        <Row label="Lead" options={LEADINGS.map((l) => l.toFixed(2))} index={leadIdx} onChange={setLeadIdx} />
-      </ScrollView>
+            </Pressable>
+          ))}
+        </View>
+      </View>
     </View>
   );
 }
 
-function Row({
-  label,
-  options,
-  index,
-  onChange,
+function Section({
+  title,
+  borderBottomColor,
+  children,
 }: {
-  label: string;
-  options: readonly string[];
-  index: number;
-  onChange: (i: number) => void;
+  title: string;
+  borderBottomColor: string;
+  children: React.ReactNode;
 }) {
   return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <View style={styles.rowOptions}>
-        {options.map((o, i) => (
-          <Pressable
-            key={o}
-            onPress={() => onChange(i)}
-            style={[styles.chip, i === index && styles.chipOn]}
-          >
-            <Text style={[styles.chipText, i === index && styles.chipTextOn]}>{o}</Text>
-          </Pressable>
-        ))}
-      </View>
+    <View style={[styles.section, { borderBottomColor }]}>
+      <Text variant="subhead" weight="semibold" tone="secondary">
+        {title}
+      </Text>
+      <View style={styles.sectionBody}>{children}</View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  page: { flex: 1 },
-  pageContent: { paddingHorizontal: 24, paddingTop: 56, paddingBottom: 28 },
-  eyebrow: { fontSize: 11, letterSpacing: 1.4, marginBottom: 8 },
-  title: { fontSize: 26, lineHeight: 32, marginBottom: 24 },
-  para: { marginBottom: 18 },
-  rule: { height: StyleSheet.hairlineWidth, opacity: 0.3, marginTop: 14, marginBottom: 22 },
-  progressTrack: { height: 2, backgroundColor: 'rgba(0,0,0,0.10)', borderRadius: 1 },
-  progressFill: { height: 2, width: '62%', borderRadius: 1 },
-  meta: { fontSize: 12, marginTop: 8 },
-  nextLink: { fontSize: 17, marginTop: 18 },
-  footnote: { fontSize: 10, marginTop: 26 },
-  compareBlock: { marginBottom: 30 },
-  compareLabel: { fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 6 },
-  // Controls are deliberately utilitarian — scaffolding, not design.
-  controls: { maxHeight: 210, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.12)', backgroundColor: '#EFEFEF' },
-  controlsContent: { padding: 10, gap: 6 },
-  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
-  rowLabel: { width: 46, fontSize: 11, color: '#555', paddingTop: 5 },
-  rowOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, flex: 1 },
-  chip: { paddingHorizontal: 9, paddingVertical: 5, backgroundColor: '#DDD', borderRadius: 4 },
-  chipOn: { backgroundColor: '#333' },
-  chipText: { fontSize: 12, color: '#333' },
-  chipTextOn: { color: '#FFF' },
+  scrollContent: { paddingHorizontal: space[24], paddingTop: space[48], paddingBottom: space[32] },
+  header: { marginBottom: space[24], gap: space[4] },
+  section: { marginBottom: space[32], paddingBottom: space[24], borderBottomWidth: 1 },
+  sectionBody: { marginTop: space[16] },
+  variantGroup: { marginBottom: space[16], gap: space[4] },
+  group: { gap: space[12] },
+  onAccentContainer: {
+    padding: space[16],
+    borderRadius: radius.md,
+    marginTop: space[8],
+  },
+  truncationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: space[16],
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: space[12],
+  },
+  paragraphWrapper: { marginBottom: space[16] },
+  controls: {
+    paddingHorizontal: space[24],
+    paddingVertical: space[16],
+    borderTopWidth: 1,
+    gap: space[8],
+  },
+  chipRow: { flexDirection: 'row', gap: space[8] },
+  chip: {
+    paddingHorizontal: space[16],
+    paddingVertical: space[8],
+    borderRadius: radius.pill,
+  },
 });

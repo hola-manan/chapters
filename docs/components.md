@@ -26,11 +26,11 @@ per-component decisions cannot cohere without them.
 
 | Token set | Status | Notes |
 |---|---|---|
-| `color` + themes | todo | |
-| `type` — UI scale and reading scale, kept independent | todo | |
-| `space` | todo | |
-| `motion` — durations, easings, springs | todo | |
-| `radius`, `shadow` | todo | |
+| `color` + themes | **decided** | Cool paper `#F7F8FA`, forest ink `#142621`, muted `#5C7169`, teal accent `#0F766E`. Dark theme derived, not yet reviewed on device. |
+| `type` — UI and reading scales, independent | **decided** | Source Serif 4 for reading at 19pt / 1.45 leading; system SF Pro for UI. Reading line height derived, never tabulated. |
+| `space` | **decided** | 4-based scale. |
+| `motion` — durations, easings, springs | **decided** | Springy and physical; springs are the primary vocabulary, durations only for opacity. |
+| `radius`, `shadow` | **decided** | Minimal; the design leans on hairlines and lightness rather than elevation. |
 
 ---
 
@@ -38,7 +38,7 @@ per-component decisions cannot cohere without them.
 
 | # | Component | Status | The interesting problem in it |
 |---|---|---|---|
-| 1 | `Text` | todo | The typographic primitive. Two independent scales — UI type and reading type — and how one component exposes both without becoming a mess. |
+| 1 | `Text` + `ReadingText` | **built** | Decided: two separate components rather than one with a variant, because `reading` obeys a different contract (it rescales, UI type doesn't) and one prop name would have hidden two behaviours. Colour is a closed `tone` prop — an arbitrary colour is unrepresentable. Split scaling policy: `Text` honours Dynamic Type capped at 1.35, `ReadingText` sets `allowFontScaling={false}` so the coming in-app size control is the only lever and the two never multiply. No `style` prop; spacing belongs to the parent, with `align`, `numberOfLines` and `flex` as the only escape valves. |
 | 2 | `Stack` | todo | Layout and the spacing scale. Whether spacing belongs to the parent or the child. |
 | 3 | `Surface` | todo | Themed backgrounds and elevation. How "raised" reads without shadows in dark themes. |
 | 4 | `Pressable` | todo | Press feedback: scale, opacity, timing, haptics. The most-reused component you will ever write. |
