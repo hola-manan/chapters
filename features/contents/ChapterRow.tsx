@@ -4,7 +4,7 @@ import { space } from '../../design';
 import { displayTitle } from '../../pdf';
 import type { Chapter } from '../../pdf/types';
 import { chapterState } from '../../storage';
-import { HStack, PressableRow, Surface, Text } from '../../ui';
+import { HStack, PressableCard, Surface, Text } from '../../ui';
 import { readMinutes } from '../readingTime';
 
 export type ChapterRowProps = {
@@ -31,8 +31,8 @@ export function ChapterRow({
   const titleText = displayTitle(chapter.title);
 
   return (
-    <PressableRow onPress={onPress} testID={testID}>
-      <Surface paddingX="lg" paddingY="md">
+    <PressableCard radius="lg" onPress={onPress} testID={testID}>
+      <Surface elevation={1} border radius="lg" paddingX="lg" paddingY="md">
         <HStack align="center" gap="md">
           {showSerialNumber && (
             <View style={{ width: space.xl, alignItems: 'flex-start' }}>
@@ -67,6 +67,7 @@ export function ChapterRow({
           </HStack>
         </HStack>
       </Surface>
-    </PressableRow>
+    </PressableCard>
   );
 }
+

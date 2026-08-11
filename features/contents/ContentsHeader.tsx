@@ -23,7 +23,7 @@ export function ContentsHeader({ book, progress, testID }: ContentsHeaderProps) 
   const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100);
 
   return (
-    <View testID={testID} style={{ paddingHorizontal: space.lg, paddingTop: space.xl, paddingBottom: space.md }}>
+    <View testID={testID} style={{ paddingTop: space.xl, paddingBottom: space.md }}>
       <VStack gap="md">
         <Text variant="title1" weight="semibold">
           {book.title}

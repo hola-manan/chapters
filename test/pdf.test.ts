@@ -1,8 +1,8 @@
 import assert from 'node:assert';
 import { test } from 'node:test';
 import { runsToBlocks } from '../pdf/blocks.ts';
-import { bodyFontSize, cleanBookTitle, detectChapters, displayTitle } from '../pdf/chapters.ts';
-import type { OutlineEntry, TextRun } from '../pdf/types.ts';
+import { bodyFontSize, cleanBookTitle, computeWordCount, detectChapters, displayTitle } from '../pdf/chapters.ts';
+import type { Block, OutlineEntry, TextRun } from '../pdf/types.ts';
 
 test('bodyFontSize quantizes sizes and picks modal bucket by character count', () => {
   // Mathematics and Humor scenario: 10.0-10.4 sizes
@@ -167,4 +167,14 @@ test('cleanBookTitle strips source cruft and cleans whitespace', () => {
   assert.strictEqual(cleanBookTitle('The_Serious_Guide_to_Joke_Writing'), 'The Serious Guide to Joke Writing');
   assert.strictEqual(cleanBookTitle('Card_College_1 - PDFDrive.com'), 'Card College 1');
 });
+
+test('computeWordCount counts words in paragraph and heading blocks', () => {
+  const blocks: Block[] = [
+    { type: 'heading', level: 1, text: 'Chapter One' },
+    { type: 'paragraph', text: 'This is a test sentence with eight words.' },
+  ];
+  assert.strictEqual(computeWordCount(blocks), 10);
+});
+
+
 

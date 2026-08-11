@@ -1,13 +1,15 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { radius as radiusTokens, type RadiusKey } from '../../design';
-import { useTheme } from '../../ui';
+import { radius as radiusTokens, space, type RadiusKey } from '../../design';
+import { Text, useTheme } from '../../ui';
 
 export const COVER_ASPECT_RATIO = 16 / 9;
 
 export type GeneratedCoverProps = {
   seed: string;
   radius?: RadiusKey;
+  progress?: number;
+  readTimeText?: string;
   testID?: string;
 };
 
@@ -26,6 +28,8 @@ function hashString(str: string): number {
 export function GeneratedCover({
   seed,
   radius = 'none',
+  progress = 0,
+  readTimeText,
   testID,
 }: GeneratedCoverProps) {
   const theme = useTheme();
@@ -60,6 +64,7 @@ export function GeneratedCover({
 
   const layoutPreset = (h >> 3) % 3;
   const borderRadius = radiusTokens[radius];
+  const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100);
 
   return (
     <View
@@ -174,6 +179,26 @@ export function GeneratedCover({
           />
         </>
       )}
+
+      {readTimeText ? (
+        <View style={styles.readTimeContainer}>
+          <Text variant="footnote" tone="primary">
+            {readTimeText}
+          </Text>
+        </View>
+      ) : null}
+
+      {pct > 0 ? (
+        <View
+          style={[
+            styles.progressBar,
+            {
+              width: `${pct}%`,
+              backgroundColor: theme.accent.base,
+            },
+          ]}
+        />
+      ) : null}
     </View>
   );
 }
@@ -188,4 +213,16 @@ const styles = StyleSheet.create({
   absoluteShape: {
     position: 'absolute',
   },
+  readTimeContainer: {
+    position: 'absolute',
+    top: space.md,
+    right: space.lg,
+  },
+  progressBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    height: space.xs,
+  },
 });
+

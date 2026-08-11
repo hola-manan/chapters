@@ -21,9 +21,6 @@ export function BookCard({ book, progress = 0, onPress, onLongPress, testID }: B
     : 0;
   const totalMinutes = readMinutes(totalWords);
   const readTimeText = `${totalMinutes} min read`;
-  const pct = Math.round(Math.min(1, Math.max(0, progress)) * 100);
-  const progressText = pct > 0 ? `${pct}% read` : 'Unread';
-  const metadataText = `${progressText} · ${readTimeText}`;
 
   return (
     <PressableCard
@@ -32,18 +29,18 @@ export function BookCard({ book, progress = 0, onPress, onLongPress, testID }: B
       onLongPress={onLongPress ? () => onLongPress(book) : undefined}
       testID={testID}
     >
-      <Surface elevation={1} border>
+      <Surface elevation={1} border radius="lg">
         <VStack gap="none">
-          <GeneratedCover seed={book.id || book.title} radius="none" />
+          <GeneratedCover
+            seed={book.id || book.title}
+            radius="none"
+            progress={progress}
+            readTimeText={readTimeText}
+          />
           <View style={styles.textContainer}>
-            <VStack gap="xs">
-              <Text variant="title3" weight="semibold" numberOfLines={2}>
-                {book.title}
-              </Text>
-              <Text variant="footnote" tone="secondary">
-                {metadataText}
-              </Text>
-            </VStack>
+            <Text variant="title3" weight="semibold" numberOfLines={2}>
+              {book.title}
+            </Text>
           </View>
         </VStack>
       </Surface>
@@ -58,3 +55,4 @@ const styles = StyleSheet.create({
     paddingBottom: space.lg,
   },
 });
+

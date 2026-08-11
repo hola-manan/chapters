@@ -1,10 +1,11 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
+import { space } from '../../../design';
 import { ChapterRow, ContentsHeader, DevToggles } from '../../../features';
 import type { Book } from '../../../pdf/types';
 import { computeBookProgress, getBook, getBookPrefs, resumeChapterId, type BookPrefs } from '../../../storage';
-import { Divider, Text, useTheme } from '../../../ui';
+import { Text, useTheme } from '../../../ui';
 
 export default function ContentsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -13,7 +14,6 @@ export default function ContentsScreen() {
 
   const [book, setBook] = useState<Book | null>(null);
   const [prefs, setPrefs] = useState<BookPrefs>({});
-  const [dividerMode, setDividerMode] = useState<'none' | 'inset'>('none');
   const [showSerials, setShowSerials] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -49,12 +49,7 @@ export default function ContentsScreen() {
   const renderHeader = () => (
     <View>
       <ContentsHeader book={book} progress={bookProgress} />
-      <DevToggles
-        dividerMode={dividerMode}
-        onToggleDivider={setDividerMode}
-        showSerials={showSerials}
-        onToggleSerials={setShowSerials}
-      />
+      <DevToggles showSerials={showSerials} onToggleSerials={setShowSerials} />
     </View>
   );
 
@@ -63,10 +58,8 @@ export default function ContentsScreen() {
       <FlatList
         data={book.chapters}
         keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.listContent}
         ListHeaderComponent={renderHeader}
-        ItemSeparatorComponent={
-          dividerMode === 'inset' ? () => <Divider inset="content" /> : undefined
-        }
         renderItem={({ item, index }) => {
           const chProgress = prefs[item.id]?.progress ?? 0;
           const isResumeTarget = item.id === targetChapterId;
@@ -91,4 +84,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  listContent: {
+    paddingHorizontal: space.lg,
+    paddingBottom: space.lg,
+    gap: space.sm,
+  },
 });
+
