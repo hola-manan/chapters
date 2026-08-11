@@ -1,170 +1,126 @@
-# Reader chrome — immersive reading, revealed chrome, swipe between chapters
+# Make chapter swiping continuous — the reader becomes a pager
 
 Read `GEMINI.md` first. No hardcoded colours, sizes, radii or durations in `ui/`, `features/` or
 `app/` — there are tests enforcing it.
 
-**The design decisions below were made by the human on device and are not open.** Implement them
-exactly; do not substitute your own taste, and do not add affordances nobody asked for.
+## The problem, reported from device
 
-Decided:
+Swiping to the next chapter currently: registers the swipe, fires a haptic, animates the content
+off-screen, then shows a blank screen, then loads the next chapter. Three separate beats where
+there should be one continuous movement.
 
-- **Immersive reading.** Nothing on screen but the text. The native stack header is turned off for
-  the reader route and the ugly prev/next footer is deleted outright.
-- **Chrome is revealed two ways: scroll up, and tap.** Scrolling down hides it, scrolling up brings
-  it back, and a tap anywhere toggles it.
-- **No progress indicator of any kind in the reader.** A five-minute chapter does not need one.
-  Component #28 `ReaderProgressBar` is cut. **Progress *recording* stays exactly as it is** — it
-  drives the library card and the resume point.
-- **Horizontal swipe moves between chapters, in both directions**, with the **left screen edge
-  reserved** so iOS's back gesture keeps working. Plus an end card at the bottom of every chapter.
+**The cause is architectural, not a tuning problem.** `ChapterTransition` animates out and calls
+`router.replace`, which tears down the reader screen and mounts it again. The new instance starts
+with `book === null`, renders "Loading chapter…", and re-reads `book.json` from disk before it can
+show anything. Nothing about the incoming chapter exists on screen while the outgoing one is
+leaving, so there is nothing to see but blank.
 
-Two calls I am making because they follow from the above rather than being separate decisions —
-implement them as written:
+**The fix: the reader stops routing between chapters and becomes a pager.** Every chapter of the
+book is already in memory — `book.chapters` holds all of them, loaded once — so moving between them
+needs no navigation, no re-fetch and no remount. The route parameter becomes the *initial* chapter
+only.
 
-- **The status bar stays visible.** Hiding it on a notched iPhone leaves a blank notch region rather
-  than gaining space.
-- **Chrome starts visible when a chapter opens** and hides on the first downward scroll. Entering an
-  immersive screen with no visible way back is disorienting even when you know the gesture.
+Required end result: **from the first pixel of the drag, the incoming chapter's content is visible
+and moves with the finger.** In both directions.
 
-## 1. Tier 2 — `ui/motion/useAutoHide.ts`
-
-New directory `ui/motion/`. This hook is the reusable half of the pass: scroll-linked auto-hide is
-wanted by any app with a reading or feed surface, so it belongs in tier 2, not in the reader.
-
-```ts
-export type UseAutoHideOptions = {
-  threshold?: number;        // px of movement before committing, default 10
-  initiallyVisible?: boolean; // default true
-};
-
-export type AutoHide = {
-  visibility: SharedValue<number>;  // 0 hidden, 1 visible — animated on the UI thread
-  isVisible: boolean;               // JS mirror, for pointerEvents only
-  scrollHandler: ReturnType<typeof useAnimatedScrollHandler>;
-  toggle: () => void;
-};
-```
-
-- Use `useAnimatedScrollHandler` so direction detection runs on the UI thread. Track the previous
-  offset in a shared value; only commit a change once movement in one direction exceeds `threshold`,
-  so ordinary finger jitter does not toggle the bar.
-- Animate `visibility` with `withSpring` using `springs.default` from `design/tokens/motion`.
-- Never hide while the scroll offset is within `threshold` of the top — at the top of a chapter the
-  chrome should be up.
-- **The tap/scroll conflict, and the rule that resolves it:** if the user taps to *hide*, an upward
-  scroll must not immediately undo that. Keep an internal `suppressReveal` shared value set by a
-  hide-toggle and cleared the next time the user scrolls *down* past the threshold. Comment this —
-  it is the non-obvious part of the hook.
-- Mirror the animated value into React state via `runOnJS` **only** when it crosses, so
-  `pointerEvents` can be set correctly. Do not drive layout from the JS mirror.
-- Respect `useReducedMotion()` from Reanimated: when set, cross-fade opacity only and skip the
-  translate.
-
-Export from `ui/motion/index.ts` and `ui/index.ts`.
-
-## 2. Tier 3 — `features/reader/ReaderChrome.tsx`
-
-```ts
-export type ReaderChromeProps = {
-  visibility: SharedValue<number>;
-  isVisible: boolean;
-  bookTitle: string;
-  onBack: () => void;
-  testID?: string;
-};
-```
-
-- An absolutely positioned top bar over the reading surface. Background `theme.surface.page` with a
-  hairline bottom border at `theme.border.subtle`. Top padding from
-  `useSafeAreaInsets().top` (`react-native-safe-area-context` is already a dependency).
-- Contents, and nothing else: a back `IconButton` with a chevron from `@expo/vector-icons`, and the
-  **book** title — not the chapter title, which is already the largest thing on the page — as
-  `Text variant="footnote" tone="secondary" numberOfLines={1}`.
-- Animated style from `visibility`: `translateY` interpolated from `-barHeight` to `0`, plus
-  opacity. Measure the bar with `onLayout` rather than assuming a height.
-- `pointerEvents={isVisible ? 'auto' : 'none'}` so hidden chrome cannot swallow taps.
-
-## 3. Tier 3 — `features/reader/ChapterTransition.tsx`
+## 1. `features/reader/ChapterTransition.tsx` — a three-up filmstrip
 
 ```ts
 export type ChapterTransitionProps = {
+  chapterKey: string;
   hasPrev: boolean;
   hasNext: boolean;
   onPrev: () => void;
   onNext: () => void;
   onTap: () => void;
+  prevPreview?: React.ReactNode;   // NEW — rendered one screen-width to the left
+  nextPreview?: React.ReactNode;   // NEW — rendered one screen-width to the right
   children: React.ReactNode;
 };
 ```
 
-Wraps the whole reading surface in a `GestureDetector`.
+- Inside the animated container, render three absolutely positioned layers, each one screen wide and
+  full height: `prevPreview` at `left: -screenWidth`, `children` at `0`, `nextPreview` at
+  `left: screenWidth`. Only `children` is the live scrollable chapter; the previews are static.
+- The drag already moves `translateX`; with the neighbours mounted, the incoming chapter is now
+  visible from the first pixel of movement. Keep the existing 24pt left-edge dead zone, the
+  `activeOffsetX`/`failOffsetY` configuration, the 25%-of-width commit threshold, the boundary
+  resistance and both haptics exactly as they are.
+- **The commit sequence, which is the delicate part.** On commit, animate `translateX` to
+  `∓screenWidth` so the preview lands exactly filling the screen, and only then call
+  `onNext`/`onPrev`. Do **not** reset `translateX` in that callback — resetting it before React has
+  rendered the new chapter would flash the outgoing chapter back into the centre for a frame.
+- Replace the existing `useEffect` reset with **`useLayoutEffect`** keyed on `chapterKey`. It runs
+  after the new chapter has been rendered but before the frame is presented, which is what makes the
+  swap invisible: the preview is replaced by the identical real content at the same position, and
+  the transform returns to zero in the same commit.
+- Add an imperative advance for callers that are not the gesture — the end card's "next chapter"
+  button should travel the same way rather than jumping. Expose it with `useImperativeHandle` on a
+  forwarded ref: `{ advance(direction: 'prev' | 'next'): void }`, running the same animate-then-call
+  sequence with the same haptic.
 
-- `Gesture.Pan()` with `.activeOffsetX([-24, 24])` and `.failOffsetY([-16, 16])`, so vertical
-  scrolling always wins and the pan only claims genuinely horizontal movement.
-- **Left-edge dead zone.** In `onBegin`, if `event.absoluteX` is less than a 24pt edge constant,
-  flag the gesture as ignored and make `onUpdate`/`onEnd` no-ops. Comment that this is precisely
-  what keeps iOS's interactive back gesture working, and that it is why the dead zone exists.
-- Content follows the finger on `translateX`. Past a commit threshold of 25% of screen width,
-  fire `Haptics.selectionAsync()`, animate the content out in that direction, and call
-  `onNext`/`onPrev`. Under the threshold, spring back with `springs.default`.
-- **At a boundary** (swiping toward a chapter that does not exist) apply resistance — multiply the
-  translation by 0.25 — and fire `Haptics.impactAsync(Light)` **once per gesture**, the first time
-  the finger passes the threshold. Then spring back. Never navigate.
-- A `Gesture.Tap()` composed with the pan via `Gesture.Exclusive(pan, tap)`, calling `onTap`.
+## 2. `features/reader/ChapterPreview.tsx` — new
 
-Haptics here are consistent with the standing policy — consequential actions only. A chapter change
-is a navigation commit and a blocked swipe is a refused action; both qualify.
-
-## 4. Tier 3 — `features/reader/ChapterEndCard.tsx`
+The static stand-in for a neighbouring chapter.
 
 ```ts
-export type ChapterEndCardProps = {
-  nextTitle?: string;      // already through displayTitle(); absent on the last chapter
-  nextWordCount?: number;
-  bookTitle: string;
-  onNext?: () => void;
-  onBackToContents: () => void;
+export type ChapterPreviewProps = {
+  chapter: Chapter;
+  chapterNumber: number;
+  chapterCount: number;
   testID?: string;
 };
 ```
 
-- `space.xxxl` of margin above it and a hairline rule, so it cannot be mistaken for body text.
-- With a next chapter: a `NEXT` eyebrow as `Text variant="caption" weight="semibold"`
-  **`tone="secondary"`, not accent** — the opening eyebrow is the reader's only accent and a second
-  one would halve the value of the first. Then the next chapter's title as
-  `Text variant="title3" weight="semibold"`, and its read time via the existing `readMinutes` helper
-  as a `footnote`/`secondary` line. Wrap the whole block in a `PressableCard`.
-- On the last chapter: no next block. A quiet `End of {bookTitle}` line, plus a `TextLink` back to
-  Contents.
-- Below either state, always a `TextLink` to Contents.
+- Renders exactly what the top of a real chapter renders: `ChapterOpening`, then the chapter's first
+  paragraph and heading blocks, in document order, using the same `ParagraphBlock` and
+  `HeadingBlock` components.
+- **It must be pixel-identical to the real chapter at scroll offset 0**, because the swap at the end
+  of a commit relies on that. Same horizontal padding (`space.xxl`), same top padding
+  (`insets.top + space.xxxl`), same header margin. Take enough blocks to overfill a screen — 12 is
+  ample — and clip the rest with `overflow: 'hidden'`. Do not use a `FlatList`; it is a static
+  preview and virtualising three of them is exactly the cost this design avoids.
 
-## 5. Wire up the reader — `app/book/[id]/[chapter].tsx`
+## 3. `app/book/[id]/[chapter].tsx` — hold the current chapter in state
 
-- Delete the prev/next footer and its styles entirely.
-- The `FlatList` becomes `Animated.FlatList` from Reanimated, with
-  `onScroll={autoHide.scrollHandler}` and `scrollEventThrottle={16}`.
-- **Progress recording must keep working, and this is the trap in this step.** The throttled JS
-  `onScroll` handler is being replaced by the animated one, so the saves that used to ride on it are
-  gone. `onScrollEndDrag`, `onMomentumScrollEnd` and the focus-loss save all remain and are enough —
-  they were added for exactly this reason. Keep them, keep the monotonic `Math.max` behaviour, and
-  keep the `hasMeasuredRef` guard before treating a non-scrolling chapter as complete. Do not
-  simplify any of it.
-- `contentContainerStyle` top padding becomes `useSafeAreaInsets().top + space.xxxl`, since there is
-  no longer a header holding the content down. Bottom padding gains the bottom inset.
-- `ListFooterComponent` renders `ChapterEndCard`.
-- Wrap the list in `ChapterTransition`; render `ReaderChrome` as a sibling above it.
-- `onTap` calls `autoHide.toggle()`.
+- Add `const [currentIndex, setCurrentIndex] = useState<number | null>(null)`, initialised **once**
+  from the route parameter when the book loads. The route parameter is the entry point, not the
+  live source of truth — do not re-derive `currentIndex` from it on every render, or paging will
+  fight the URL.
+- `chapter` becomes `book.chapters[currentIndex]`. Neighbours come from the same array.
+- Pass `prevPreview` / `nextPreview` to `ChapterTransition`, built from the neighbouring chapters via
+  `ChapterPreview`. Pass `undefined` at the first and last chapter, so the boundary resistance has
+  nothing to reveal.
+- `onPrev`/`onNext` now call `setCurrentIndex`. **No `router.replace` for chapter changes.** The
+  back button keeps its existing `router.replace` to Contents.
+- `ChapterEndCard`'s next-chapter press calls the transition's `advance('next')` through the ref, so
+  it animates the same way as a swipe instead of jumping.
+- Give the `Animated.FlatList` a `key={chapter.id}` so it remounts per chapter and the new chapter
+  starts at the top rather than inheriting the previous chapter's scroll offset.
 
-In `app/_layout.tsx`, add a `Stack.Screen` for `book/[id]/[chapter]` with `headerShown: false`.
-Leave `gestureEnabled` at its default — the edge dead zone in step 3 is what protects it.
+### Progress recording across a chapter change — do not get this wrong
 
-## 6. Gallery — `app/_dev/gallery.tsx`
+Progress is currently saved on scroll-end and on focus loss. Focus loss no longer fires between
+chapters, because the screen is never unmounted, so a chapter change must do that work itself.
 
-Extend the "Reading Surface" section with `ChapterEndCard` in both of its states: with a next
-chapter, and as the last chapter of a book. `ReaderChrome` and `ChapterTransition` are not gallery
-material — they only mean anything over a live scroll view.
+- In an effect keyed on `currentIndex`, **before** switching to the new chapter, flush the outgoing
+  chapter's progress using the existing monotonic logic — including the rule that a chapter which
+  never needed to scroll counts as complete, guarded by `hasMeasuredRef`.
+- Then reset `maxProgressRef`, `maxBlockIndexRef`, `contentHeightRef`, `layoutHeightRef`,
+  `isScrollableRef` and `hasMeasuredRef` for the incoming chapter. A stale `hasMeasuredRef` would
+  mark an unread chapter complete; a stale `maxProgressRef` would carry one chapter's progress onto
+  the next. Both are silent data corruption, so be careful here.
+- Keep the focus-loss save for leaving the reader entirely.
+- **Resume applies only on entry.** A chapter arrived at by swiping or from the end card starts at
+  the top; `getReadingPosition` is consulted for the initial chapter only. Deliberately moving to
+  the next chapter and landing halfway down it would be disorienting.
 
-## 7. Gates
+## 4. Do not change
+
+The reading surface, the chapter opening, `ReaderChrome`, `useAutoHide` and the end card's design
+are all settled. This pass changes how chapters move past one another and nothing else.
+
+## 5. Gates
 
 - `npx tsc --noEmit`
 - `npm run lint`
@@ -172,10 +128,8 @@ material — they only mean anything over a live scroll view.
 
 ## Constraints
 
-- **Do not touch anything outside this project directory.** If you hit an out-of-repo need, list it
-  at the end of your response instead of acting on it.
+- **Do not touch anything outside this project directory.** List any out-of-repo need at the end of
+  your response instead of acting on it.
 - **Do not commit.** Leave the tree dirty for review.
 - `pdfs/` is read-only.
 - Do not upgrade Expo, React Native or any pinned dependency. SDK 54 is a hard constraint.
-- Do not redesign the reading surface — measure, paragraph rhythm and the chapter opening are
-  settled. This pass adds only what is listed above.
