@@ -11,19 +11,21 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { motion, type SpringConfig } from '../../design';
+import { motion, radius as radiusTokens } from '../../design';
 import { useTheme } from '../theme';
 
 const AnimatedPressable = Animated.createAnimatedComponent(RNPressable);
 
 export type PressableFeedback = 'scale' | 'overlay' | 'opacity' | 'none';
 export type PressableHaptic = 'none' | 'selection' | 'light' | 'success' | 'error';
+export type PressableRadius = 'none' | 'sm' | 'md' | 'lg' | 'pill';
 
 export type PressableProps = {
   onPress?: () => void;
   onLongPress?: () => void;
   feedback?: PressableFeedback;
   haptic?: PressableHaptic;
+  radius?: PressableRadius;
   hitSlop?: number;
   disabled?: boolean;
   flex?: boolean;
@@ -32,8 +34,6 @@ export type PressableProps = {
   accessibilityHint?: string;
   children?: React.ReactNode;
   testID?: string;
-  scaleTarget?: number;
-  springConfig?: SpringConfig;
 };
 
 export function Pressable({
@@ -41,6 +41,7 @@ export function Pressable({
   onLongPress,
   feedback = 'opacity',
   haptic = 'none',
+  radius = 'none',
   hitSlop,
   disabled = false,
   flex = false,
@@ -49,8 +50,6 @@ export function Pressable({
   accessibilityHint,
   children,
   testID,
-  scaleTarget,
-  springConfig,
 }: PressableProps) {
   const theme = useTheme();
   const [reducedMotion, setReducedMotion] = useState(false);
@@ -73,8 +72,6 @@ export function Pressable({
   const opacity = useSharedValue(1);
   const overlayOpacity = useSharedValue(0);
 
-  const effectiveScaleTarget = scaleTarget ?? 0.96;
-  const effectiveSpringConfig = springConfig ?? motion.springs.default;
   const effectiveFeedback = reducedMotion && feedback === 'scale' ? 'opacity' : feedback;
 
   const handlePressIn = () => {
@@ -95,7 +92,7 @@ export function Pressable({
     }
 
     if (effectiveFeedback === 'scale') {
-      scale.value = withSpring(effectiveScaleTarget, effectiveSpringConfig);
+      scale.value = withSpring(motion.press.scale, motion.press.spring);
     } else if (effectiveFeedback === 'opacity') {
       opacity.value = withTiming(0.6, { duration: motion.durations.instant });
     } else if (effectiveFeedback === 'overlay') {
@@ -107,7 +104,7 @@ export function Pressable({
     if (disabled) return;
 
     if (effectiveFeedback === 'scale') {
-      scale.value = withSpring(1, effectiveSpringConfig);
+      scale.value = withSpring(1, motion.press.spring);
     } else if (effectiveFeedback === 'opacity') {
       opacity.value = withTiming(1, { duration: motion.durations.fast });
     } else if (effectiveFeedback === 'overlay') {
@@ -128,6 +125,9 @@ export function Pressable({
     };
   });
 
+  const borderRadius = radiusTokens[radius];
+  const shouldClip = radius !== 'none' || feedback === 'overlay';
+
   return (
     <AnimatedPressable
       testID={testID}
@@ -143,7 +143,8 @@ export function Pressable({
       accessibilityState={{ disabled }}
       style={[
         flex ? styles.flex : undefined,
-        feedback === 'overlay' ? styles.overflowHidden : undefined,
+        { borderRadius },
+        shouldClip ? styles.overflowHidden : undefined,
         animatedStyle,
       ]}
     >

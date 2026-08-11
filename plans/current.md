@@ -115,3 +115,55 @@ guards. The three real screens are unchanged. Every variant in the gallery respo
 - Do not commit. Leave the work in the working tree.
 - Do not touch anything outside the project directory.
 - Do not upgrade Expo or any `expo-*` package.
+
+---
+
+# Fixes — round 1
+
+Two changes: bake in the press feel the human chose by hand, and fix the overlay shape bug.
+
+## 1. Press feel is decided — bake it into the tokens and close the escape hatch
+
+Chosen by thumb on device: **scale target `0.99`** with the **`default`** spring.
+
+- Add a `press` entry to `design/tokens/motion.ts` holding both values together, e.g.
+  `press: { scale: 0.99, spring: springs.default }`. They are one decision, not two, so keep them
+  in a single token rather than as separate values that could drift apart.
+- `Pressable` reads that token directly.
+- **Remove the `scaleTarget` and `springConfig` props** from `Pressable` entirely, and remove the
+  live tuning controls and their state from the gallery. They were temporary instruments for making
+  this decision. Leaving them public would reopen exactly the escape hatch that the closed `tone`
+  and `gap` vocabularies exist to prevent — any call site could then invent its own press feel and
+  the system would stop being true.
+- The gallery keeps every variant example; it just demonstrates the settled feel instead of
+  offering knobs.
+
+## 2. The press overlay ignores the corner radius
+
+`PressableRow`'s overlay renders as a hard rectangle behind a rounded child, so the highlight
+visibly overhangs the corners.
+
+**Cause:** `Surface` owns `borderRadius`, but `Pressable` renders the overlay as an
+`absoluteFillObject` inside its own container — and that container has no radius, so its
+`overflow: 'hidden'` has nothing to clip against.
+
+**The rule:** whatever paints the press overlay must own the shape.
+
+- Add `radius?: 'none' | 'sm' | 'md' | 'lg' | 'pill'` to `Pressable`, defaulting to `'none'`, using
+  the same radius tokens and the same closed vocabulary as `Surface`.
+- Apply `borderRadius` to the pressable container, and set `overflow: 'hidden'` whenever the radius
+  is not `'none'` **or** the feedback is `'overlay'`. The overlay is then clipped to the silhouette.
+- Forward `radius` through `PressableCard`, `PressableRow`, `IconButton` and `TapRegion`.
+- Update the gallery's row and card examples to set `radius` on the pressable, and drop the radius
+  from the inner `Surface` in those examples — the parent's clip now defines the shape for both.
+  Add a short comment at that call site recording why, so the pattern is not undone later.
+
+## Not in scope
+
+- Do not change any other token value or component.
+- Do not restyle the three real screens.
+
+## Done means
+
+`npx tsc --noEmit`, `npm run lint` and `node --test` all pass. `scaleTarget` and `springConfig` no
+longer exist anywhere in the codebase. The row overlay is clipped to its rounded corners.

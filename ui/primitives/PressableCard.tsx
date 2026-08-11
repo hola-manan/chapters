@@ -1,11 +1,11 @@
 import React from 'react';
-import type { SpringConfig } from '../../design';
-import { Pressable, type PressableHaptic } from './Pressable';
+import { Pressable, type PressableHaptic, type PressableRadius } from './Pressable';
 
 export type PressableCardProps = {
   onPress?: () => void;
   onLongPress?: () => void;
   haptic?: PressableHaptic;
+  radius?: PressableRadius;
   hitSlop?: number;
   disabled?: boolean;
   flex?: boolean;
@@ -14,14 +14,13 @@ export type PressableCardProps = {
   accessibilityHint?: string;
   children: React.ReactNode;
   testID?: string;
-  scaleTarget?: number;
-  springConfig?: SpringConfig;
 };
 
 export function PressableCard({
   onPress,
   onLongPress,
   haptic = 'none',
+  radius = 'none',
   hitSlop,
   disabled,
   flex,
@@ -30,8 +29,6 @@ export function PressableCard({
   accessibilityHint,
   children,
   testID,
-  scaleTarget,
-  springConfig,
 }: PressableCardProps) {
   return (
     <Pressable
@@ -39,6 +36,7 @@ export function PressableCard({
       onPress={onPress}
       onLongPress={onLongPress}
       haptic={haptic}
+      radius={radius}
       hitSlop={hitSlop}
       disabled={disabled}
       flex={flex}
@@ -46,8 +44,6 @@ export function PressableCard({
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
       testID={testID}
-      scaleTarget={scaleTarget}
-      springConfig={springConfig}
     >
       {children}
     </Pressable>

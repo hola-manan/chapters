@@ -35,9 +35,15 @@ export const reducedMotion = {
   easing: [0, 0, 1, 1] as const,
 } as const;
 
+export const press = {
+  scale: 0.99,
+  spring: springs.default,
+} as const satisfies { scale: number; spring: SpringConfig };
+
 export const motion = {
   springs,
   durations,
   easings,
   reducedMotion,
+  press,
 } as const;

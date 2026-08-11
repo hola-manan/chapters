@@ -1,12 +1,13 @@
 import React from 'react';
 import { space } from '../../design';
-import { Pressable, type PressableHaptic } from './Pressable';
+import { Pressable, type PressableHaptic, type PressableRadius } from './Pressable';
 
 export type IconButtonProps = {
   onPress?: () => void;
   onLongPress?: () => void;
   iconSize?: number;
   haptic?: PressableHaptic;
+  radius?: PressableRadius;
   hitSlop?: number;
   disabled?: boolean;
   flex?: boolean;
@@ -22,6 +23,7 @@ export function IconButton({
   onLongPress,
   iconSize = space.xl,
   haptic = 'none',
+  radius = 'none',
   hitSlop,
   disabled,
   flex,
@@ -40,6 +42,7 @@ export function IconButton({
       onPress={onPress}
       onLongPress={onLongPress}
       haptic={haptic}
+      radius={radius}
       hitSlop={effectiveHitSlop}
       disabled={disabled}
       flex={flex}
