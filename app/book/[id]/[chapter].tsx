@@ -27,7 +27,7 @@ export default function ReaderScreen() {
           const found = b.chapters.find((c) => c.id === chapterId);
           setChapter(found || null);
           getReadingPosition(id, chapterId).then((pos) => {
-            setInitialIndex(pos);
+            setInitialIndex(pos.blockIndex);
           });
         }
       });
@@ -49,12 +49,22 @@ export default function ReaderScreen() {
       ? book.chapters[currentChapterIdx + 1]
       : null;
 
-  const handleScroll = (event: { nativeEvent: { contentOffset: { y: number } } }) => {
-    const yOffset = event.nativeEvent.contentOffset.y;
+  const handleScroll = (event: {
+    nativeEvent: {
+      contentOffset: { y: number };
+      layoutMeasurement: { height: number };
+      contentSize: { height: number };
+    };
+  }) => {
+    const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
+    const yOffset = contentOffset.y;
     // Estimate block index based on average block height (~40px)
     const blockIndex = Math.max(0, Math.floor(yOffset / 40));
+    const maxScroll = contentSize.height - layoutMeasurement.height;
+    const progress = maxScroll > 0 ? Math.min(1, Math.max(0, yOffset / maxScroll)) : 1;
+
     if (id && chapterId) {
-      saveReadingPosition(id, chapterId, blockIndex);
+      saveReadingPosition(id, chapterId, blockIndex, progress);
     }
   };
 

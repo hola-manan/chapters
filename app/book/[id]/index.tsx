@@ -1,90 +1,94 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
-import type { Book } from '../../../pdf/types.ts';
-import { getBook } from '../../../storage/index.ts';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import { FlatList, StyleSheet, View } from 'react-native';
+import { ChapterRow, ContentsHeader, DevToggles } from '../../../features';
+import type { Book } from '../../../pdf/types';
+import { computeBookProgress, getBook, getBookPrefs, resumeChapterId, type BookPrefs } from '../../../storage';
+import { Divider, Text, useTheme } from '../../../ui';
 
 export default function ContentsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [book, setBook] = useState<Book | null>(null);
+  const theme = useTheme();
 
-  useEffect(() => {
+  const [book, setBook] = useState<Book | null>(null);
+  const [prefs, setPrefs] = useState<BookPrefs>({});
+  const [dividerMode, setDividerMode] = useState<'none' | 'inset'>('none');
+  const [showSerials, setShowSerials] = useState(false);
+
+  const loadData = useCallback(async () => {
     if (id) {
-      getBook(id).then(setBook);
+      const loadedBook = await getBook(id);
+      const loadedPrefs = await getBookPrefs(id);
+      setBook(loadedBook);
+      setPrefs(loadedPrefs);
     }
   }, [id]);
 
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
+
   if (!book) {
     return (
-      <View style={styles.container}>
-        <Text>Loading book contents...</Text>
+      <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
+        <Text tone="secondary">Loading book contents...</Text>
       </View>
     );
   }
 
+  const bookProgress = computeBookProgress(book, prefs);
+  const targetChapterId = resumeChapterId(book, prefs);
+
+  const renderHeader = () => (
+    <View>
+      <ContentsHeader book={book} progress={bookProgress} />
+      <DevToggles
+        dividerMode={dividerMode}
+        onToggleDivider={setDividerMode}
+        showSerials={showSerials}
+        onToggleSerials={setShowSerials}
+      />
+    </View>
+  );
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>{book.title}</Text>
-      <Text style={styles.subtitle}>
-        {book.pageCount} pages | {book.chapters.length} chapters ({book.chapterSource})
-      </Text>
-
-      {book.status === 'no-text-layer' && (
-        <View style={styles.warningBox}>
-          <Text style={styles.warningText}>
-            This PDF has no extractable text layer (scanned page images).
-          </Text>
-        </View>
-      )}
-
-      {book.status === 'failed' && (
-        <View style={styles.warningBox}>
-          <Text style={styles.warningText}>
-            Failed to parse PDF: {book.error || 'Unknown error'}
-          </Text>
-        </View>
-      )}
-
+    <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
       <FlatList
         data={book.chapters}
         keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <Pressable
-            style={styles.chapterCard}
-            onPress={() => router.push(`/book/${book.id}/${item.id}`)}
-          >
-            <Text style={styles.chapterTitle}>{item.title}</Text>
-            <Text style={styles.chapterPages}>
-              Pages {item.startPage}–{item.endPage} | {item.blocks.length} blocks
-            </Text>
-          </Pressable>
-        )}
+        ListHeaderComponent={renderHeader}
+        ItemSeparatorComponent={
+          dividerMode === 'inset' ? () => <Divider inset="content" /> : undefined
+        }
+        renderItem={({ item, index }) => {
+          const chProgress = prefs[item.id]?.progress ?? 0;
+          const isResumeTarget = item.id === targetChapterId;
+          return (
+            <ChapterRow
+              chapter={item}
+              progress={chProgress}
+              isResumeTarget={isResumeTarget}
+              showSerialNumber={showSerials}
+              index={index}
+              onPress={() => router.push(`/book/${book.id}/${item.id}`)}
+            />
+          );
+        }}
+        showsVerticalScrollIndicator={false}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#fff' },
-  title: { fontSize: 20, fontWeight: 'bold' },
-  subtitle: { fontSize: 13, color: '#666', marginBottom: 12 },
-  warningBox: {
-    padding: 12,
-    backgroundColor: '#fff3cd',
-    borderColor: '#ffebaa',
-    borderWidth: 1,
-    marginBottom: 12,
+  container: {
+    flex: 1,
   },
-  warningText: { color: '#856404', fontSize: 13 },
-  list: { gap: 8 },
-  chapterCard: {
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    gap: 4,
-  },
-  chapterTitle: { fontSize: 16, fontWeight: '500' },
-  chapterPages: { fontSize: 12, color: '#777' },
 });

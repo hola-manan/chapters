@@ -8,6 +8,7 @@ import { ImportTile } from './ImportTile';
 
 export type LibraryFeedProps = {
   books: Book[];
+  progressMap?: Record<string, number>;
   onSelectBook: (book: Book) => void;
   onDeleteBook: (book: Book) => void;
   onImportPress: () => void;
@@ -20,6 +21,7 @@ export type LibraryFeedProps = {
 
 export function LibraryFeed({
   books,
+  progressMap,
   onSelectBook,
   onDeleteBook,
   onImportPress,
@@ -63,6 +65,7 @@ export function LibraryFeed({
       renderItem={({ item }) => (
         <BookCard
           book={item}
+          progress={progressMap?.[item.id] ?? 0}
           onPress={onSelectBook}
           onLongPress={onDeleteBook}
         />

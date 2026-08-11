@@ -1,171 +1,137 @@
-# Library pass — GeneratedCover, BookCard, LibraryFeed, ImportTile
+# Contents pass — ContentsHeader, ChapterRow, progress model
 
 ## Goal
 
-Make the Library screen real. This is the first screen to leave the ugly skeleton behind and the
-first time the primitives compose into actual UI.
+Make the Contents screen real, and add the reading-progress model both it and the library need.
 
-Read `GEMINI.md` first. These are **tier 3** components: they live in `features/library/`, may
-import from `design/` and `ui/` and the app's own types, and must still never hardcode a colour,
-size, radius or duration.
+Read `GEMINI.md` first. Tier-3 components live in `features/contents/`; they may import from
+`design/` and `ui/` and app types, and must never hardcode a colour, size, radius or duration.
 
 ## Decisions already made by the human — transcribe, do not reinterpret
 
-1. **Wide banner cards**, not portrait book covers. This app is a short-form content viewer
-   (~5 minute reads), not a book reader; a 2:3 portrait cover would signal "book" and mislead.
-2. **The title sits below the cover**, set in UI type (system font) — not inside the generated art.
-   The generated art stays purely abstract.
-3. **Delete is a long-press action**, invisible until wanted.
-4. **Single column feed**, decided from geometry: at phone width, two wide cards per row leaves each
-   about 160pt, too narrow for a banner to be worth generating.
+1. **Chapter row carries: read time + where the reader is** (unread / in progress / resume point).
+2. **Book level carries only: progress (bar or percentage) + total read time.** This replaces the
+   chapter-count and page-count metadata currently on `BookCard`.
+3. **Titles show the meaningful part only.** "Chapter 2: Getting Started" renders as
+   "Getting Started". "Contents" renders as "Contents". Non-chapter outline entries such as
+   Contents, References and Index are kept, not filtered.
+4. **Serial numbers are undecided** — build them behind a toggle so they can be judged on device.
+5. **Dividers are undecided** — build the list with a toggle for rules on/off, judged on device.
+   This settles the owed `Divider` question.
 
-## 1. `features/library/GeneratedCover.tsx`
+## 1. Real book titles — `pdf/`
 
-A deterministic abstract banner derived from the book, used in place of cover art.
+Book titles currently come from the filename, so the library shows things like
+`"Laugh Tactics_ ... ( PDFDrive )"`. The PDFs carry proper titles in their metadata.
 
-- Input: the book `id` or `title`. Same input must always produce the same cover — write a small
-  stable string hash; do not use `Math.random`.
-- Aspect ratio: wide. Start at **16:9** and expose it as a constant so it is easy to retune.
-- **Constrain the palette.** Derive hue from the hash but restrict it to an arc around the app's
-  own family — roughly teal through forest through slate — and vary lightness and saturation more
-  than hue. Free-range hashing produces covers in colours unrelated to the design system, and a
-  library of those reads as a bug rather than a feature. Build the ramp from the existing colour
-  primitives where possible; if a generated colour is genuinely needed, compute it in
-  `features/`, never in `design/`.
-- Keep the composition quiet: a soft gradient, or a few large geometric shapes. No noise, no
-  photographic texture. It sits under a title and must never compete with it.
-- Must work in both themes. On the dark theme it should sit comfortably against the dark ground —
-  test it, do not assume.
-- Props: `seed: string`, `radius?`, `testID?`.
+- In the WebView parser, read `doc.getMetadata()` and return `info.Title` alongside the existing
+  result fields.
+- In `parse.ts`, prefer the metadata title when it is present and non-trivial; fall back to the
+  cleaned filename otherwise.
+- Clean both paths: strip a trailing `- PDFDrive.com`, `( PDFDrive )` and similar source cruft,
+  convert underscores to spaces, and collapse repeated whitespace.
+- This is metadata, not text extraction — do not touch chapter detection or block building.
 
-## 2. `features/library/BookCard.tsx`
+## 2. Chapter display titles — `pdf/chapters.ts`
 
-- Composition: a `PressableCard` wrapping a `VStack` — `GeneratedCover` on top, then the title,
-  then a metadata line.
-- Title: `Text variant="body"` or `"title3"`, `weight="semibold"`, `numberOfLines={2}`.
-  Real titles run past 80 characters (*"Laugh Tactics: Master Conversational Humor and Be Funny On
-  Command"*), so two lines with truncation is the realistic case, not the edge case.
-- Metadata: chapter count and page count, `Text variant="footnote" tone="secondary"`.
-  **Use `secondary`, not `tertiary`** — tertiary is now reserved for disabled and decorative use
-  only, because at roughly 2.8:1 on paper it is below the readable threshold.
-- The card sets `radius` on the `PressableCard` itself, not on an inner `Surface` — whatever paints
-  the press overlay owns the shape.
-- `onPress` opens the book. `onLongPress` triggers delete (section 4).
+Add a pure function, e.g. `displayTitle(raw: string): string`:
 
-## 3. `features/library/LibraryFeed.tsx`
+- Strip a leading `Chapter|Part|Section` followed by a number (arabic or roman) and an optional
+  separator (`:`, `.`, `-`, en/em dash).
+- Also strip a bare leading `12.` or `12)` ordinal.
+- **If the remainder is empty or trivially short, return the original title unchanged.** A chapter
+  genuinely titled "Chapter One" must not render as an empty row.
+- Leave everything else alone. Do not attempt cleverness beyond this.
 
-- A `FlatList` of `BookCard`s, single column, with `contentContainerStyle` padding from space tokens.
-- Vertical rhythm between cards comes from the list's gap/separator using space tokens — no margins
-  on the cards themselves.
-- `ImportTile` renders as the **first** item, above the books, so the primary action is in the
-  content flow rather than floating over it.
-- Empty state: for now a simple centred `Text` explaining the library is empty. `EmptyState` is its
-  own later pass — do not design it here, and do not build a reusable component for it yet.
+Add Node tests covering: prefixed-with-name, prefix-only, roman numerals, bare ordinal, and a
+non-chapter entry like "Index" which must pass through untouched.
 
-## 4. `features/library/ImportTile.tsx` and delete
+## 3. Word counts and read time
 
-**ImportTile** — a `PressableCard` in the same width as a book card but shorter, reading clearly as
-an action rather than content. It has two states:
+- Add `wordCount: number` to `Chapter` in `pdf/types.ts`, computed at parse time by counting words
+  across the chapter's paragraph and heading blocks.
+- Add a pure helper in `features/` (not `design/`): `readMinutes(wordCount)` using **230 wpm**,
+  rounded, with a floor of 1. Export the constant so it is easy to retune.
 
-- Idle: an add affordance plus a short label.
-- Importing: the current stage text and percentage from the existing `parsePdf` progress callback,
-  as plain `Text`. Keep this minimal — `ImportProgressCard` (#20) designs the real progress
-  experience later, including skeletons. Do not build shimmer or skeletons now.
+## 4. Progress model — `storage/prefs.ts`
 
-**Delete** — on long-press of a `BookCard`, show a native `Alert.alert` with a `destructive`
-"Delete" option and a "Cancel". This is deliberate: it is the platform's destructive-confirmation
-pattern, needs no new component, and correctly requires confirmation for an irreversible action. A
-custom context menu can replace it later if it is ever wanted. Fire `haptic` on the long-press —
-deleting is a consequential action, which is exactly the policy for when haptics are allowed.
+Replace the current position-only model with a fraction:
 
-On confirm, call the existing `removeBook` from `storage/` and refresh the list.
+- Per chapter, store `progress: number` in `0..1` alongside the existing resume position
+  (`blockIndex`).
+- Chapter state derives from it: `0` → unread, `0 < p < 0.98` → in progress, `>= 0.98` → done.
+  Put the 0.98 threshold in one named constant.
+- Book progress is **word-weighted**: `sum(chapter.wordCount * progress) / sum(chapter.wordCount)`.
+  A simple mean over chapters would let a one-page preface count as much as a long chapter.
+- Expose `resumeChapterId(book)`: the first chapter in progress, else the first unread, else the
+  last chapter.
+- Update the existing ugly reader screen to write `progress` on scroll (clamped, throttled). Do
+  **not** restyle the reader — it stays ugly until its own pass. Only its persistence changes.
 
-## 5. Rewrite `app/index.tsx`
+## 5. `features/contents/ChapterRow.tsx`
 
-Replace the skeleton library screen with `LibraryFeed`. Remove the ugly Delete button, the
-diagnostic `Status:` / `Source:` lines, and the plain import button — all superseded.
+- A `PressableRow` containing an `HStack`.
+- Title: `displayTitle(chapter.title)`, `Text variant="body"`, `numberOfLines={2}`, `flex` so it
+  truncates rather than displacing the metadata.
+- Metadata: read time as `Text variant="footnote" tone="secondary"` — `secondary`, never
+  `tertiary`.
+- Read state, shown quietly:
+  - **unread** — nothing, the default.
+  - **in progress** — a small accent indicator plus the resume affordance.
+  - **done** — a subdued marker; do not use a loud checkmark.
+  The resume chapter is the one place on this screen the accent colour may appear.
+- Optional serial number in a leading column, controlled by the toggle in section 7.
+- The row owns its own vertical padding via `Surface`; spacing between rows comes from the list.
 
-Keep the link to `/_dev/gallery`, but make it small and unobtrusive; it is a development affordance.
+## 6. `features/contents/ContentsHeader.tsx`
 
-Keep the existing import flow logic exactly as it is, including the rejection of `no-text-layer`
-and `failed` books with an error message. Only its presentation changes.
+- Book title in `Text variant="title1" weight="semibold"`, wrapping freely — no truncation on this
+  screen, it is the subject of the page.
+- Beneath it: overall progress and total read time, from section 3 and 4.
+- Progress as a thin bar in the accent colour on a `sunken` track, plus a percentage. Keep it
+  restrained; this is not a dashboard.
+- **Static for now.** Do not implement scroll collapse — that needs `CollapsingHeader` (#15),
+  which is not built. Leave a comment noting the intent.
 
-## 6. Extend the gallery
+## 7. Temporary dev toggles
 
-Add a Library section showing:
+Two undecided questions must be judged on device. Add a small, deliberately utilitarian control
+strip to the Contents screen — plain chips, clearly scaffolding, not designed:
 
-- Eight `GeneratedCover`s in a row or grid, seeded from the real book titles plus synthetic long and
-  short ones, so the generator can be judged for variety and coherence across arbitrary input.
-- A `BookCard` with a very long title and one with a short title, side by side, so truncation
-  behaviour is visible.
-- The `ImportTile` in both idle and importing states.
+- **Dividers**: none / hairline with leading inset.
+- **Serial numbers**: off / on.
+
+When the human decides, both toggles and the losing branch get deleted. Add a comment saying so.
+
+For the hairline option, give the existing provisional `Divider` an
+`inset?: 'none' | 'content'` prop, where `content` insets the leading edge to match the row's
+horizontal padding and runs to the trailing screen edge.
+
+## 8. Update `BookCard`
+
+Replace the chapter-count and page-count metadata with **book progress and total read time**, per
+decision 2. Keep everything else about the card as it is.
+
+## 9. Rewrite `app/book/[id]/index.tsx`
+
+Use `ContentsHeader` and a `FlatList` of `ChapterRow`. Remove the skeleton's plain text and the
+no-text-layer message — unreadable books can no longer enter the library.
 
 ## Explicitly not in this phase
 
-- No `EmptyState`, `Skeleton`, `Progress` or `Toast` components.
-- Do not design the import progress experience beyond plain text.
-- Do not touch the contents screen or the reader.
-- Do not decide `Divider`'s inset or weight.
+- Do not restyle the reader screen beyond its progress persistence.
+- No `CollapsingHeader`, `Progress`, `Skeleton` or `EmptyState` components.
+- Do not change chapter detection or block building.
 - Do not change any decided token value.
 
 ## Done means
 
-`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, including the `ui/` guards. The
-Library screen renders real cards with generated covers, importing still works, and long-press
-deletes after confirmation.
+`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, including new `displayTitle` tests.
+The Contents screen shows real titles with read times, the library shows real book titles and
+progress, and both toggles work.
 
 ## Reminders
 
 - Do not commit. Leave the work in the working tree.
 - Do not touch anything outside the project directory.
 - Do not upgrade Expo or any `expo-*` package.
-
----
-
-# Fixes — round 1
-
-The library screen is right. One real defect and one guard gap.
-
-## 1. `GeneratedCover` infers the theme by comparing a hex literal
-
-`features/library/GeneratedCover.tsx:38`:
-
-```ts
-const isDark = theme.surface.page !== '#F7F8FA';
-```
-
-Two problems. It hardcodes the light paper colour inside a component, so changing that token would
-silently flip every cover to its dark treatment. And it infers theme identity rather than being
-told, which is the pattern the `Surface` pass deliberately avoided.
-
-Note this is **not** a case of "the token should carry the difference". `GeneratedCover` computes
-colours procedurally from a hash, so it genuinely needs to know which scheme it is in — a lightness
-band cannot be expressed as a single colour token. The fix is to make the theme state it explicitly.
-
-- Add `scheme: 'light' | 'dark'` to the `Theme` type in `design/themes.ts`, set to `'light'` on
-  `lightTheme` and `'dark'` on `darkTheme`. It is a plain string, so it does not violate the
-  no-hex-literals rule.
-- Replace the inference in `GeneratedCover` with `theme.scheme === 'dark'`.
-- No other component may use `theme.scheme` to pick a colour — colours still come from semantic
-  tokens. This exists solely for procedural generation. Add a short comment on the `scheme` field
-  saying exactly that, so it is not treated as a general licence to branch.
-
-## 2. The colour guard does not cover `features/`
-
-The existing test asserts no hex literals under `ui/`, but `features/` is equally forbidden from
-hardcoding colours and is where the violation above appeared.
-
-- Extend the guard so it checks **both** `ui/` and `features/`.
-- Keep allowing `transparent`; nothing else.
-- Verify by reasoning that the test would have caught the `#F7F8FA` above.
-
-## Not in scope
-
-- Do not change the cover generator's hue arc, layouts or lightness ranges — those are for the
-  human to judge on device.
-- Do not change any other component.
-
-## Done means
-
-`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, with the extended guard covering
-`features/`. No hex literal exists anywhere under `ui/` or `features/`.

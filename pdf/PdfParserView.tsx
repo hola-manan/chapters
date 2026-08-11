@@ -200,6 +200,14 @@ const htmlContent = `
         }
       } catch (e) {}
 
+      let metadataTitle = '';
+      try {
+        const meta = await doc.getMetadata();
+        if (meta && meta.info && typeof meta.info.Title === 'string') {
+          metadataTitle = meta.info.Title;
+        }
+      } catch (e) {}
+
       if (sampleErrorCount === sampleIndices.length) {
         loadingTask.destroy();
         postRN({
@@ -209,6 +217,7 @@ const htmlContent = `
           error: firstSampleError || 'Failed to read text from sampled pages',
           numPages,
           outline: rawOutline,
+          metadataTitle,
         });
         return;
       }
@@ -221,6 +230,7 @@ const htmlContent = `
           status: 'no-text-layer',
           numPages,
           outline: rawOutline,
+          metadataTitle,
         });
         return;
       }
@@ -261,13 +271,14 @@ const htmlContent = `
       postRN({ id, type: 'progress', stage: 'detecting', pct: 95 });
       loadingTask.destroy();
 
-      // Final result carries numPages, status, outline - NOT runs
+      // Final result carries numPages, status, outline, metadataTitle - NOT runs
       postRN({
         id,
         type: 'result',
         status: 'ready',
         numPages,
         outline: rawOutline,
+        metadataTitle,
       });
     } catch (err) {
       postRN({ id, type: 'error', error: err ? err.message || String(err) : 'Parse error' });

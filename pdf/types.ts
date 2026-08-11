@@ -9,6 +9,7 @@ export type Chapter = {
   title: string;
   startPage: number; // 1-based, inclusive
   endPage: number; // 1-based, inclusive
+  wordCount: number;
   blocks: Block[];
 };
 

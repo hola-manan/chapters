@@ -1,6 +1,6 @@
 // Deliberate use of expo-file-system/legacy API for chunked file reading and file ops
 import * as FileSystem from 'expo-file-system/legacy';
-import { detectChapters } from './chapters.ts';
+import { cleanBookTitle, detectChapters, isNonTrivialTitle } from './chapters.ts';
 import type { Book, BookStatus, OutlineEntry, TextRun } from './types.ts';
 
 export type ProgressCallback = (stage: string, pct: number) => void;
@@ -34,6 +34,8 @@ function flushQueuedCommands() {
   }
 }
 
+
+
 export function handleParserMessage(msg: {
   id?: string;
   type: string;
@@ -43,6 +45,7 @@ export function handleParserMessage(msg: {
   numPages?: number;
   runs?: TextRun[];
   outline?: OutlineEntry[];
+  metadataTitle?: string;
   error?: string;
   uri?: string;
 }) {
@@ -70,16 +73,24 @@ export function handleParserMessage(msg: {
       const runs = req.accumulatedRuns;
       const outline = msg.outline || [];
 
+      const cleanedMeta = cleanBookTitle(msg.metadataTitle || '');
+      const cleanedFile = cleanBookTitle(req.bookTitle);
+      const resolvedTitle = isNonTrivialTitle(cleanedMeta)
+        ? cleanedMeta
+        : isNonTrivialTitle(cleanedFile)
+        ? cleanedFile
+        : 'Untitled Book';
+
       const { chapters, chapterSource } = detectChapters(
         runs,
         outline,
         numPages,
-        req.bookTitle
+        resolvedTitle
       );
 
       const book: Book = {
         id: req.id,
-        title: req.bookTitle,
+        title: resolvedTitle,
         addedAt: Date.now(),
         pageCount: numPages,
         status,

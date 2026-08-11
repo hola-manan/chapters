@@ -1,19 +1,20 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
-import { Link, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { Link, useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import { radius, space } from '../design';
 import { LibraryFeed } from '../features';
 import { parsePdf } from '../pdf';
 import type { Book } from '../pdf/types';
-import { addBook, listBooks, removeBook } from '../storage';
+import { addBook, computeBookProgress, getBookPrefs, listBooks, removeBook } from '../storage';
 import { Text, useTheme, VStack } from '../ui';
 
 export default function LibraryScreen() {
   const router = useRouter();
   const theme = useTheme();
   const [books, setBooks] = useState<Book[]>([]);
+  const [progressMap, setProgressMap] = useState<Record<string, number>>({});
   const [isParsing, setIsParsing] = useState(false);
   const [progressStage, setProgressStage] = useState('');
   const [progressPct, setProgressPct] = useState(0);
@@ -22,11 +23,24 @@ export default function LibraryScreen() {
   const loadLibrary = async () => {
     const list = await listBooks();
     setBooks(list);
+
+    const pMap: Record<string, number> = {};
+    for (const b of list) {
+      const prefs = await getBookPrefs(b.id);
+      pMap[b.id] = computeBookProgress(b, prefs);
+    }
+    setProgressMap(pMap);
   };
 
   useEffect(() => {
     loadLibrary();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadLibrary();
+    }, [])
+  );
 
   const handlePickDocument = async () => {
     try {
@@ -125,6 +139,7 @@ export default function LibraryScreen() {
     <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
       <LibraryFeed
         books={books}
+        progressMap={progressMap}
         onSelectBook={(book) => router.push(`/book/${book.id}`)}
         onDeleteBook={handleDeleteBook}
         onImportPress={handlePickDocument}

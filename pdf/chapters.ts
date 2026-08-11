@@ -1,6 +1,62 @@
 import { runsToBlocks } from './blocks.ts';
 import type { Block, Book, Chapter, OutlineEntry, TextRun } from './types.ts';
 
+export function cleanBookTitle(raw: string): string {
+  if (!raw) return '';
+  return raw
+    .replace(/\s*[-_]?\s*\(?\s*pdfdrive(?:\.com)?\s*\)?\s*$/gi, '')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function isNonTrivialTitle(title: string): boolean {
+  const trimmed = title.trim().toLowerCase();
+  if (!trimmed) return false;
+  if (/^untitled(\s+document|\s+book)?$/i.test(trimmed)) return false;
+  return /[a-z0-9]/i.test(trimmed);
+}
+
+export function displayTitle(raw: string): string {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+
+  // Strip a leading Chapter|Part|Section followed by a number and an optional separator.
+  // Numbers appear as arabic (1), roman (IV) or spelled out (One) — the last is common in
+  // trade books, e.g. "Chapter One (PRACTICAL) Redefinitions & Puns".
+  const WORD_NUMERALS =
+    'one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|' +
+    'fifteen|sixteen|seventeen|eighteen|nineteen|twenty';
+  const prefixRegex = new RegExp(
+    `^(?:chapter|part|section)\\s+(?:\\d+(?:\\.\\d+)*|[ivxlcdm]+|${WORD_NUMERALS})\\s*[:.\\-–—]?\\s*`,
+    'i'
+  );
+  // Also strip a bare leading 12. or 12) ordinal
+  const ordinalRegex = /^\d+\s*[.)]\s*/;
+
+  let remainder = trimmed.replace(prefixRegex, '');
+  if (remainder === trimmed) {
+    remainder = trimmed.replace(ordinalRegex, '');
+  }
+
+  remainder = remainder.trim();
+  if (remainder.length <= 1) {
+    return trimmed;
+  }
+  return remainder;
+}
+
+export function computeWordCount(blocks: Block[]): number {
+  let count = 0;
+  for (const b of blocks) {
+    if (b.type === 'heading' || b.type === 'paragraph') {
+      const words = b.text.trim().split(/\s+/).filter(Boolean);
+      count += words.length;
+    }
+  }
+  return count;
+}
+
 export function bodyFontSize(runs: TextRun[]): number {
   if (!runs || runs.length === 0) {
     return 10;
@@ -61,6 +117,7 @@ export function detectChapters(
           title: entry.title.trim(),
           startPage,
           endPage,
+          wordCount: computeWordCount(blocks),
           blocks,
         };
       });
@@ -128,6 +185,7 @@ export function detectChapters(
           title: h.title,
           startPage,
           endPage,
+          wordCount: computeWordCount(blocks),
           blocks,
         };
       });
@@ -142,6 +200,7 @@ export function detectChapters(
     title: bookTitle || 'Full Book',
     startPage: 1,
     endPage: effectivePageCount,
+    wordCount: computeWordCount(allBlocks),
     blocks: allBlocks,
   };
 

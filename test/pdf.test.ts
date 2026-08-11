@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import { test } from 'node:test';
 import { runsToBlocks } from '../pdf/blocks.ts';
-import { bodyFontSize, detectChapters } from '../pdf/chapters.ts';
+import { bodyFontSize, cleanBookTitle, detectChapters, displayTitle } from '../pdf/chapters.ts';
 import type { OutlineEntry, TextRun } from '../pdf/types.ts';
 
 test('bodyFontSize quantizes sizes and picks modal bucket by character count', () => {
@@ -124,3 +124,47 @@ test('accumulates runs_chunk batches before chapter detection', () => {
   assert.strictEqual(chapters[0].title, 'Chapter 1: Beginnings');
   assert.strictEqual(chapters[1].title, 'Chapter 2: Middle');
 });
+
+test('displayTitle strips prefixes and bare ordinals appropriately', () => {
+  // prefixed-with-name
+  assert.strictEqual(displayTitle('Chapter 2: Getting Started'), 'Getting Started');
+  assert.strictEqual(displayTitle('Section 3.1 Overview'), 'Overview');
+  assert.strictEqual(displayTitle('Part 1 - Introduction'), 'Introduction');
+
+  // prefix-only
+  assert.strictEqual(displayTitle('Chapter 2'), 'Chapter 2');
+  assert.strictEqual(displayTitle('Chapter One'), 'Chapter One');
+
+  // roman numerals
+  assert.strictEqual(displayTitle('Chapter II - Getting Started'), 'Getting Started');
+  assert.strictEqual(displayTitle('Part IV: Advanced Concepts'), 'Advanced Concepts');
+
+  // spelled-out numerals — common in trade books, and the form used throughout
+  // "The Serious Guide to Joke Writing" in the real test corpus
+  assert.strictEqual(
+    displayTitle('Chapter One (PRACTICAL) Redefinitions & Puns'),
+    '(PRACTICAL) Redefinitions & Puns'
+  );
+  assert.strictEqual(
+    displayTitle('Chapter Two (THEORY): How To Use Your Brain'),
+    '(THEORY): How To Use Your Brain'
+  );
+  // ...but a spelled-out prefix with nothing after it still falls back
+  assert.strictEqual(displayTitle('Part Two'), 'Part Two');
+
+  // bare ordinal
+  assert.strictEqual(displayTitle('12. Getting Started'), 'Getting Started');
+  assert.strictEqual(displayTitle('12) Getting Started'), 'Getting Started');
+
+  // non-chapter entry untouched
+  assert.strictEqual(displayTitle('Index'), 'Index');
+  assert.strictEqual(displayTitle('Contents'), 'Contents');
+  assert.strictEqual(displayTitle('References'), 'References');
+});
+
+test('cleanBookTitle strips source cruft and cleans whitespace', () => {
+  assert.strictEqual(cleanBookTitle('Laugh Tactics_ ... ( PDFDrive )'), 'Laugh Tactics ...');
+  assert.strictEqual(cleanBookTitle('The_Serious_Guide_to_Joke_Writing'), 'The Serious Guide to Joke Writing');
+  assert.strictEqual(cleanBookTitle('Card_College_1 - PDFDrive.com'), 'Card College 1');
+});
+
