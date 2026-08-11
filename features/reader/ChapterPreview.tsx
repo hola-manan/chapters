@@ -15,7 +15,7 @@ export type ChapterPreviewProps = {
   testID?: string;
 };
 
-export function ChapterPreview({
+export const ChapterPreview = React.memo(function ChapterPreview({
   chapter,
   chapterNumber,
   chapterCount,
@@ -56,7 +56,7 @@ export function ChapterPreview({
       })}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

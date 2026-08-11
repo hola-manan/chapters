@@ -1,5 +1,5 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   FlatList,
   LayoutChangeEvent,
@@ -39,13 +39,30 @@ export default function ReaderScreen() {
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const [initialIndex, setInitialIndex] = useState<number | null>(null);
 
+  const deferredIndex = useDeferredValue(currentIndex);
+
   const prevIndexRef = useRef<number | null>(null);
+  const prevChapterIdRef = useRef<string | null>(null);
   const maxProgressRef = useRef<number>(0);
   const maxBlockIndexRef = useRef<number>(0);
   const contentHeightRef = useRef<number>(0);
   const layoutHeightRef = useRef<number>(0);
   const isScrollableRef = useRef<boolean>(false);
   const hasMeasuredRef = useRef<boolean>(false);
+
+  const currentChapterId = currentIndex !== null && book ? book.chapters[currentIndex]?.id : null;
+
+  useLayoutEffect(() => {
+    if (currentChapterId) {
+      if (
+        prevChapterIdRef.current !== null &&
+        prevChapterIdRef.current !== currentChapterId
+      ) {
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+      }
+      prevChapterIdRef.current = currentChapterId;
+    }
+  }, [currentChapterId]);
 
   // The book is read from disk exactly once. Paging between chapters must not re-enter this —
   // every chapter is already in `book.chapters`, and re-fetching would put a disk read and a
@@ -178,21 +195,32 @@ export default function ReaderScreen() {
 
   const displayBlocks = chapter.blocks.filter((b) => b.type !== 'pagebreak');
 
-  const prevPreview = prevChapter ? (
-    <ChapterPreview
-      chapter={prevChapter}
-      chapterNumber={currentIndex}
-      chapterCount={book.chapters.length}
-    />
-  ) : undefined;
+  const deferredPrevChapter =
+    deferredIndex !== null && book && deferredIndex > 0
+      ? book.chapters[deferredIndex - 1]
+      : null;
+  const deferredNextChapter =
+    deferredIndex !== null && book && deferredIndex < book.chapters.length - 1
+      ? book.chapters[deferredIndex + 1]
+      : null;
 
-  const nextPreview = nextChapter ? (
-    <ChapterPreview
-      chapter={nextChapter}
-      chapterNumber={currentIndex + 2}
-      chapterCount={book.chapters.length}
-    />
-  ) : undefined;
+  const prevPreview =
+    deferredPrevChapter && deferredIndex !== null && book ? (
+      <ChapterPreview
+        chapter={deferredPrevChapter}
+        chapterNumber={deferredIndex}
+        chapterCount={book.chapters.length}
+      />
+    ) : undefined;
+
+  const nextPreview =
+    deferredNextChapter && deferredIndex !== null && book ? (
+      <ChapterPreview
+        chapter={deferredNextChapter}
+        chapterNumber={deferredIndex + 2}
+        chapterCount={book.chapters.length}
+      />
+    ) : undefined;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
@@ -216,9 +244,11 @@ export default function ReaderScreen() {
       >
         <Animated.FlatList
           ref={flatListRef}
-          key={chapter.id}
           data={displayBlocks}
           keyExtractor={(_, index) => `block_${index}`}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={5}
           contentContainerStyle={[
             styles.listContainer,
             {
