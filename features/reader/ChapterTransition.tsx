@@ -68,10 +68,17 @@ export const ChapterTransition = React.forwardRef<
   }, [chapterKey, translateX]);
 
   // Called on the JS thread from the gesture, so the offset is stored before onNext/onPrev
-  // triggers the re-render that runs the effect above.
-  const commit = (offset: number, move: () => void) => {
+  // triggers the re-render that runs the effect above. One wrapper per direction rather than a
+  // single `commit(offset, move)`: `runOnJS` serialises its arguments across the thread boundary
+  // and a function passed that way arrives as a plain object, not something callable.
+  const commitPrev = (offset: number) => {
     pendingOffsetRef.current = offset;
-    move();
+    onPrev();
+  };
+
+  const commitNext = (offset: number) => {
+    pendingOffsetRef.current = offset;
+    onNext();
   };
 
   const isIgnored = useSharedValue(false);
@@ -100,10 +107,10 @@ export const ChapterTransition = React.forwardRef<
         // At rest the drag offset is zero, so the incoming chapter sits exactly one screen away.
         if (direction === 'next' && hasNext) {
           triggerSelectionHaptic();
-          commit(screenWidth, onNext);
+          commitNext(screenWidth);
         } else if (direction === 'prev' && hasPrev) {
           triggerSelectionHaptic();
-          commit(-screenWidth, onPrev);
+          commitPrev(-screenWidth);
         }
       },
     }),
@@ -155,10 +162,10 @@ export const ChapterTransition = React.forwardRef<
         runOnJS(triggerSelectionHaptic)();
         // The chapter swaps now; the spring afterwards carries content that is already correct,
         // so a second swipe has something to grab immediately instead of waiting out the tail.
-        runOnJS(commit)(tx - screenWidth, onPrev);
+        runOnJS(commitPrev)(tx - screenWidth);
       } else if (tx < -commitThreshold && hasNext) {
         runOnJS(triggerSelectionHaptic)();
-        runOnJS(commit)(tx + screenWidth, onNext);
+        runOnJS(commitNext)(tx + screenWidth);
       } else {
         translateX.value = withSpring(0, springs.default);
       }
