@@ -35,6 +35,7 @@ function ThemedStack() {
             headerTitle: '',
           }}
         />
+        <Stack.Screen name="book/[id]/[chapter]" options={{ headerShown: false }} />
       </Stack>
     </>
   );

@@ -5,22 +5,32 @@ import {
   LayoutChangeEvent,
   NativeScrollEvent,
   NativeSyntheticEvent,
-  Pressable,
   StyleSheet,
   View,
 } from 'react-native';
-import { radius, space } from '../../../design';
-import { ChapterOpening, HeadingBlock, ParagraphBlock } from '../../../features';
+import Animated from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { space } from '../../../design';
+import {
+  ChapterEndCard,
+  ChapterOpening,
+  ChapterTransition,
+  HeadingBlock,
+  ParagraphBlock,
+  ReaderChrome,
+} from '../../../features';
 import { displayTitle } from '../../../pdf';
 import type { Book, Chapter } from '../../../pdf/types';
 import { getBook, getReadingPosition, saveReadingPosition } from '../../../storage';
-import { Text, useTheme } from '../../../ui';
+import { Text, useAutoHide, useTheme } from '../../../ui';
 
 export default function ReaderScreen() {
   const { id, chapter: chapterId } = useLocalSearchParams<{ id: string; chapter: string }>();
   const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
   const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const autoHide = useAutoHide();
 
   const [book, setBook] = useState<Book | null>(null);
   const [chapter, setChapter] = useState<Chapter | null>(null);
@@ -134,82 +144,89 @@ export default function ReaderScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
-      <FlatList
-        ref={flatListRef}
-        data={displayBlocks}
-        keyExtractor={(_, index) => `block_${index}`}
-        contentContainerStyle={styles.listContainer}
-        ListHeaderComponent={
-          <View style={styles.headerContainer}>
-            <ChapterOpening
-              title={displayTitle(chapter.title)}
-              chapterNumber={currentChapterIdx + 1}
-              chapterCount={book.chapters.length}
-            />
-          </View>
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text tone="secondary" align="center">
-              {book.status === 'no-text-layer'
-                ? 'No extractable text in this chapter (scanned document).'
-                : 'No text blocks found in this chapter.'}
-            </Text>
-          </View>
-        }
-        initialScrollIndex={
-          initialIndex && initialIndex < displayBlocks.length ? initialIndex : undefined
-        }
-        onScroll={handleScroll}
-        onScrollEndDrag={handleScroll}
-        onMomentumScrollEnd={handleScroll}
-        onContentSizeChange={handleContentSizeChange}
-        onLayout={handleLayout}
-        scrollEventThrottle={500}
-        onScrollToIndexFailed={(info) => {
-          flatListRef.current?.scrollToOffset({
-            offset: info.averageItemLength * info.index,
-            animated: false,
-          });
-        }}
-        renderItem={({ item }) => {
-          if (item.type === 'heading') {
-            return <HeadingBlock text={item.text} level={item.level} />;
-          }
-          if (item.type === 'paragraph') {
-            return <ParagraphBlock text={item.text} />;
-          }
-          return null;
-        }}
+      <ReaderChrome
+        visibility={autoHide.visibility}
+        isVisible={autoHide.isVisible}
+        bookTitle={book.title}
+        onBack={() => router.replace(`/book/${book.id}`)}
       />
 
-      <View style={[styles.footer, { borderTopColor: theme.border.subtle }]}>
-        {prevChapter ? (
-          <Pressable
-            style={[styles.navButton, { backgroundColor: theme.surface.sunken }]}
-            onPress={() => router.replace(`/book/${book.id}/${prevChapter.id}`)}
-          >
-            <Text variant="footnote" weight="medium" tone="primary">
-              ← Previous
-            </Text>
-          </Pressable>
-        ) : (
-          <View style={styles.placeholder} />
-        )}
-
-        {nextChapter ? (
-          <Pressable
-            style={[styles.navButton, { backgroundColor: theme.surface.sunken }]}
-            onPress={() => router.replace(`/book/${book.id}/${nextChapter.id}`)}
-          >
-            <Text variant="footnote" weight="medium" tone="primary">
-              Next →
-            </Text>
-          </Pressable>
-        ) : (
-          <View style={styles.placeholder} />
-        )}
-      </View>
+      <ChapterTransition
+        chapterKey={chapter.id}
+        hasPrev={Boolean(prevChapter)}
+        hasNext={Boolean(nextChapter)}
+        onPrev={() => prevChapter && router.replace(`/book/${book.id}/${prevChapter.id}`)}
+        onNext={() => nextChapter && router.replace(`/book/${book.id}/${nextChapter.id}`)}
+        onTap={() => autoHide.toggle()}
+      >
+        <Animated.FlatList
+          ref={flatListRef}
+          data={displayBlocks}
+          keyExtractor={(_, index) => `block_${index}`}
+          contentContainerStyle={[
+            styles.listContainer,
+            {
+              paddingTop: insets.top + space.xxxl,
+              paddingBottom: space.xxl + insets.bottom,
+            },
+          ]}
+          ListHeaderComponent={
+            <View style={styles.headerContainer}>
+              <ChapterOpening
+                title={displayTitle(chapter.title)}
+                chapterNumber={currentChapterIdx + 1}
+                chapterCount={book.chapters.length}
+              />
+            </View>
+          }
+          ListFooterComponent={
+            <ChapterEndCard
+              nextTitle={nextChapter ? displayTitle(nextChapter.title) : undefined}
+              nextWordCount={nextChapter ? nextChapter.wordCount : undefined}
+              bookTitle={book.title}
+              onNext={
+                nextChapter
+                  ? () => router.replace(`/book/${book.id}/${nextChapter.id}`)
+                  : undefined
+              }
+              onBackToContents={() => router.replace(`/book/${book.id}`)}
+            />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text tone="secondary" align="center">
+                {book.status === 'no-text-layer'
+                  ? 'No extractable text in this chapter (scanned document).'
+                  : 'No text blocks found in this chapter.'}
+              </Text>
+            </View>
+          }
+          initialScrollIndex={
+            initialIndex && initialIndex < displayBlocks.length ? initialIndex : undefined
+          }
+          onScroll={autoHide.scrollHandler}
+          scrollEventThrottle={16}
+          onScrollEndDrag={handleScroll}
+          onMomentumScrollEnd={handleScroll}
+          onContentSizeChange={handleContentSizeChange}
+          onLayout={handleLayout}
+          onScrollToIndexFailed={(info) => {
+            flatListRef.current?.scrollToOffset({
+              offset: info.averageItemLength * info.index,
+              animated: false,
+            });
+          }}
+          renderItem={({ item }) => {
+            if (item.type === 'heading') {
+              return <HeadingBlock text={item.text} level={item.level} />;
+            }
+            if (item.type === 'paragraph') {
+              return <ParagraphBlock text={item.text} />;
+            }
+            return null;
+          }}
+        />
+      </ChapterTransition>
     </View>
   );
 }
@@ -218,8 +235,6 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   listContainer: {
     paddingHorizontal: space.xxl,
-    paddingTop: space.xl,
-    paddingBottom: space.xxl,
   },
   headerContainer: {
     marginBottom: space.lg,
@@ -229,17 +244,4 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.xxl,
-    paddingVertical: space.md,
-    borderTopWidth: 1,
-  },
-  navButton: {
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderRadius: radius.md,
-  },
-  placeholder: { width: 80 },
 });

@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { radius, space } from '../../design/index.ts';
 import {
   BookCard,
+  ChapterEndCard,
   ChapterOpening,
   GeneratedCover,
   HeadingBlock,
@@ -767,6 +768,35 @@ function GalleryContent({
                 <HeadingBlock text="Section 1.1: The Asymmetric Rhythm of Headings" level={1} />
                 <ParagraphBlock text={bodyParagraphs[2 % bodyParagraphs.length]} />
                 <ParagraphBlock text={bodyParagraphs[3 % bodyParagraphs.length]} />
+              </View>
+            </VStack>
+
+            {/* 3. Chapter End Card (With Next Chapter) */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                3. CHAPTER END CARD — WITH NEXT CHAPTER
+              </Text>
+              <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
+                <ChapterEndCard
+                  nextTitle="Chapter 2: The Asymmetric Rhythm of Headings"
+                  nextWordCount={1450}
+                  bookTitle="The Elements of Typographic Style"
+                  onNext={() => {}}
+                  onBackToContents={() => {}}
+                />
+              </View>
+            </VStack>
+
+            {/* 4. Chapter End Card (Last Chapter of Book) */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                4. CHAPTER END CARD — LAST CHAPTER OF BOOK
+              </Text>
+              <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
+                <ChapterEndCard
+                  bookTitle="The Elements of Typographic Style"
+                  onBackToContents={() => {}}
+                />
               </View>
             </VStack>
           </VStack>
