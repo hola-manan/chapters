@@ -1,7 +1,7 @@
 import React from 'react';
 import { Text as RNText } from 'react-native';
-import { getReadingStyle, readingFontFamily } from '../../design';
-import { useTheme } from '../theme';
+import { getReadingStyle, readingConfig, readingFontFamily, readingSizes } from '../../design';
+import { useReadingSize, useTheme } from '../theme';
 
 export type ReadingTextProps = {
   tone?: 'primary' | 'secondary';
@@ -19,7 +19,9 @@ export function ReadingText({
   testID,
 }: ReadingTextProps) {
   const theme = useTheme();
-  const readingStyle = getReadingStyle();
+  const { size } = useReadingSize();
+  const baseSize = readingSizes[size] ?? readingConfig.baseSize;
+  const readingStyle = getReadingStyle(1.0, baseSize);
 
   return (
     <RNText

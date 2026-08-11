@@ -6,10 +6,12 @@ import {
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { type ReadingSizeName } from '../design/index.ts';
 import { PdfParserView } from '../pdf/index.ts';
-import { ThemeProvider, useTheme } from '../ui/index.ts';
+import { getSettings, saveSettings } from '../storage/index.ts';
+import { ReadingSizeProvider, ThemeProvider, type ThemeMode, useTheme } from '../ui/index.ts';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -47,23 +49,62 @@ export default function RootLayout() {
     SourceSerif4_600SemiBold,
   });
 
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [readingSize, setReadingSize] = useState<ReadingSizeName>('default');
+  const [themeMode, setThemeMode] = useState<ThemeMode>('system');
+
   useEffect(() => {
-    if (fontsLoaded || fontError) {
+    let isMounted = true;
+    getSettings()
+      .then((s) => {
+        if (isMounted) {
+          setReadingSize(s.readingSize);
+          setThemeMode(s.themeMode);
+          setSettingsLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setSettingsLoaded(true);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const isReady = (fontsLoaded || fontError) && settingsLoaded;
+
+  useEffect(() => {
+    if (isReady) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [isReady]);
 
-  if (!fontsLoaded && !fontError) {
+  if (!isReady) {
     return null;
   }
 
+  const handleReadingSizeChange = (newSize: ReadingSizeName) => {
+    setReadingSize(newSize);
+    void saveSettings({ readingSize: newSize, themeMode });
+  };
+
+  const handleThemeModeChange = (newMode: ThemeMode) => {
+    setThemeMode(newMode);
+    void saveSettings({ readingSize, themeMode: newMode });
+  };
+
   return (
-    <ThemeProvider>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <ThemedStack />
-        <PdfParserView />
-      </GestureHandlerRootView>
+    <ThemeProvider mode={themeMode} onModeChange={handleThemeModeChange}>
+      <ReadingSizeProvider value={readingSize} onChange={handleReadingSizeChange}>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <ThemedStack />
+          <PdfParserView />
+        </GestureHandlerRootView>
+      </ReadingSizeProvider>
     </ThemeProvider>
   );
 }
+
 

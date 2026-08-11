@@ -21,6 +21,8 @@ import {
   ReadingInitial,
   ReadingLead,
   ReadingText,
+  SegmentedControl,
+  Sheet,
   Surface,
   TapRegion,
   Text,
@@ -107,13 +109,18 @@ function GalleryContent({
   const [sourceLabel, setSourceLabel] = useState('Placeholder text');
   const [showHiddenChild, setShowHiddenChild] = useState(false);
 
-  // Pressable State Examples
+  // Pressable & Control State Examples
   const [cardPressCount, setCardPressCount] = useState<number>(0);
   const [rowPressCount, setRowPressCount] = useState<number>(0);
   const [iconPressCount, setIconPressCount] = useState<number>(0);
   const [linkPressCount, setLinkPressCount] = useState<number>(0);
   const [tapRegionToggled, setTapRegionToggled] = useState<boolean>(false);
   const [hapticPressCount, setHapticPressCount] = useState<number>(0);
+
+  // SegmentedControl & Sheet Specimen State
+  const [twoOptVal, setTwoOptVal] = useState<'light' | 'dark'>('light');
+  const [threeOptVal, setThreeOptVal] = useState<'small' | 'default' | 'large'>('default');
+  const [sheetOpen, setSheetOpen] = useState<boolean>(false);
 
   useEffect(() => {
     (async () => {
@@ -801,7 +808,88 @@ function GalleryContent({
             </VStack>
           </VStack>
         </Section>
+
+        {/* Section 13: SegmentedControl & Sheet */}
+        <Section title="SegmentedControl & Sheet Overlays" borderBottomColor={theme.border.subtle}>
+          <VStack gap="xl">
+            {/* 1. Two-option SegmentedControl */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                1. TWO-OPTION SEGMENTED CONTROL
+              </Text>
+              <SegmentedControl
+                options={[
+                  { value: 'light', label: 'Light' },
+                  { value: 'dark', label: 'Dark' },
+                ]}
+                value={twoOptVal}
+                onChange={setTwoOptVal}
+                testID="gallery-two-option-segmented-control"
+              />
+            </VStack>
+
+            {/* 2. Three-option SegmentedControl */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                2. THREE-OPTION SEGMENTED CONTROL
+              </Text>
+              <SegmentedControl
+                options={[
+                  { value: 'small', label: 'Small' },
+                  { value: 'default', label: 'Default' },
+                  { value: 'large', label: 'Large' },
+                ]}
+                value={threeOptVal}
+                onChange={setThreeOptVal}
+                testID="gallery-three-option-segmented-control"
+              />
+            </VStack>
+
+            {/* 3. Sheet Trigger */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                3. BOTTOM SHEET OVERLAY
+              </Text>
+              <PressableCard radius="md" onPress={() => setSheetOpen(true)}>
+                <Surface elevation={1} padding="md" border>
+                  <HStack justify="between" align="center">
+                    <VStack gap="xxs">
+                      <Text variant="body" weight="semibold">
+                        Open Sample Bottom Sheet
+                      </Text>
+                      <Text variant="caption" tone="secondary">
+                        Drag handle, backdrop blur, pan dismiss
+                      </Text>
+                    </VStack>
+                    <Text variant="footnote" tone="accent" weight="medium">
+                      Open →
+                    </Text>
+                  </HStack>
+                </Surface>
+              </PressableCard>
+            </VStack>
+          </VStack>
+        </Section>
       </ScrollView>
+
+      {/* Gallery Sample Sheet */}
+      <Sheet visible={sheetOpen} onDismiss={() => setSheetOpen(false)} testID="gallery-sample-sheet">
+        <VStack gap="md">
+          <Text variant="subhead" weight="semibold">
+            Sample Bottom Sheet Content
+          </Text>
+          <Text variant="body" tone="secondary">
+            This sheet demonstrates drag-to-dismiss velocity tracking, backdrop blur tinting, and bottom safe-area inset padding.
+          </Text>
+          <PressableCard radius="md" onPress={() => setSheetOpen(false)}>
+            <Surface elevation={1} padding="md" border>
+              <Text variant="body" weight="medium" align="center" tone="accent">
+                Dismiss Sheet
+              </Text>
+            </Surface>
+          </PressableCard>
+        </VStack>
+      </Sheet>
 
       {/* Theme Selection Controls */}
       <View

@@ -9,6 +9,8 @@ import {
   View,
 } from 'react-native';
 import Animated from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { space } from '../../../design';
 import {
@@ -20,11 +22,12 @@ import {
   HeadingBlock,
   ParagraphBlock,
   ReaderChrome,
+  ReaderSettingsSheet,
 } from '../../../features';
 import { displayTitle } from '../../../pdf';
 import type { Book } from '../../../pdf/types';
 import { getBook, getReadingPosition, saveReadingPosition } from '../../../storage';
-import { Text, useAutoHide, useTheme } from '../../../ui';
+import { Text, useAutoHide, useReadingSize, useTheme, useThemeMode } from '../../../ui';
 
 export default function ReaderScreen() {
   const { id, chapter: chapterId } = useLocalSearchParams<{ id: string; chapter: string }>();
@@ -34,6 +37,49 @@ export default function ReaderScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const autoHide = useAutoHide();
+
+  const { size: readingSize, setSize: onChangeReadingSize, step: stepReadingSize } = useReadingSize();
+  const { mode: themeMode, setMode: onChangeThemeMode } = useThemeMode();
+  const [settingsVisible, setSettingsVisible] = useState(false);
+
+  const lastStepScaleRef = useRef(1.0);
+  const sizeRef = useRef(readingSize);
+  sizeRef.current = readingSize;
+  const stepRef = useRef(stepReadingSize);
+  stepRef.current = stepReadingSize;
+
+  const pinchGesture = Gesture.Pinch()
+    .runOnJS(true)
+    .onStart(() => {
+      lastStepScaleRef.current = 1.0;
+    })
+    .onUpdate((event) => {
+      const scale = event.scale;
+      const lastScale = lastStepScaleRef.current;
+      const relScale = scale / lastScale;
+
+      if (relScale >= 1.15) {
+        if (sizeRef.current !== 'large') {
+          try {
+            void Haptics.selectionAsync();
+          } catch {
+            // Haptics unavailable
+          }
+          stepRef.current('up');
+        }
+        lastStepScaleRef.current = scale;
+      } else if (relScale <= 0.87) {
+        if (sizeRef.current !== 'small') {
+          try {
+            void Haptics.selectionAsync();
+          } catch {
+            // Haptics unavailable
+          }
+          stepRef.current('down');
+        }
+        lastStepScaleRef.current = scale;
+      }
+    });
 
   const [book, setBook] = useState<Book | null>(null);
   const [currentIndex, setCurrentIndex] = useState<number | null>(null);
@@ -201,88 +247,102 @@ export default function ReaderScreen() {
         isVisible={autoHide.isVisible}
         bookTitle={book.title}
         onBack={() => router.replace(`/book/${book.id}`)}
+        onOpenSettings={() => setSettingsVisible(true)}
       />
 
-      <ChapterTransition
-        ref={transitionRef}
-        chapterKey={chapter.id}
-        hasPrev={Boolean(prevChapter)}
-        hasNext={Boolean(nextChapter)}
-        onPrev={() => setCurrentIndex((i) => (i !== null && i > 0 ? i - 1 : i))}
-        onNext={() => setCurrentIndex((i) => (i !== null && i < book.chapters.length - 1 ? i + 1 : i))}
-        onTap={() => autoHide.toggle()}
-        prevPreview={prevPreview}
-        nextPreview={nextPreview}
-      >
-        <Animated.FlatList
-          ref={flatListRef}
-          key={chapter.id}
-          data={displayBlocks}
-          keyExtractor={(_, index) => `block_${index}`}
-          contentContainerStyle={[
-            styles.listContainer,
-            {
-              paddingTop: insets.top + space.xxxl,
-              paddingBottom: space.xxl + insets.bottom,
-            },
-          ]}
-          ListHeaderComponent={
-            <View style={styles.headerContainer}>
-              <ChapterOpening
-                title={displayTitle(chapter.title)}
-                chapterNumber={currentIndex + 1}
-                chapterCount={book.chapters.length}
-              />
-            </View>
-          }
-          ListFooterComponent={
-            <ChapterEndCard
-              nextTitle={nextChapter ? displayTitle(nextChapter.title) : undefined}
-              nextWordCount={nextChapter ? nextChapter.wordCount : undefined}
-              bookTitle={book.title}
-              onNext={
-                nextChapter
-                  ? () => transitionRef.current?.advance('next')
-                  : undefined
+      <GestureDetector gesture={pinchGesture}>
+        <View style={styles.container}>
+          <ChapterTransition
+            ref={transitionRef}
+            chapterKey={chapter.id}
+            hasPrev={Boolean(prevChapter)}
+            hasNext={Boolean(nextChapter)}
+            onPrev={() => setCurrentIndex((i) => (i !== null && i > 0 ? i - 1 : i))}
+            onNext={() => setCurrentIndex((i) => (i !== null && i < book.chapters.length - 1 ? i + 1 : i))}
+            onTap={() => autoHide.toggle()}
+            prevPreview={prevPreview}
+            nextPreview={nextPreview}
+          >
+            <Animated.FlatList
+              ref={flatListRef}
+              key={chapter.id}
+              data={displayBlocks}
+              keyExtractor={(_, index) => `block_${index}`}
+              contentContainerStyle={[
+                styles.listContainer,
+                {
+                  paddingTop: insets.top + space.xxxl,
+                  paddingBottom: space.xxl + insets.bottom,
+                },
+              ]}
+              ListHeaderComponent={
+                <View style={styles.headerContainer}>
+                  <ChapterOpening
+                    title={displayTitle(chapter.title)}
+                    chapterNumber={currentIndex + 1}
+                    chapterCount={book.chapters.length}
+                  />
+                </View>
               }
-              onBackToContents={() => router.replace(`/book/${book.id}`)}
+              ListFooterComponent={
+                <ChapterEndCard
+                  nextTitle={nextChapter ? displayTitle(nextChapter.title) : undefined}
+                  nextWordCount={nextChapter ? nextChapter.wordCount : undefined}
+                  bookTitle={book.title}
+                  onNext={
+                    nextChapter
+                      ? () => transitionRef.current?.advance('next')
+                      : undefined
+                  }
+                  onBackToContents={() => router.replace(`/book/${book.id}`)}
+                />
+              }
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Text tone="secondary" align="center">
+                    {book.status === 'no-text-layer'
+                      ? 'No extractable text in this chapter (scanned document).'
+                      : 'No text blocks found in this chapter.'}
+                  </Text>
+                </View>
+              }
+              initialScrollIndex={
+                initialIndex && initialIndex < displayBlocks.length ? initialIndex : undefined
+              }
+              onScroll={autoHide.scrollHandler}
+              scrollEventThrottle={16}
+              onScrollEndDrag={handleScroll}
+              onMomentumScrollEnd={handleScroll}
+              onContentSizeChange={handleContentSizeChange}
+              onLayout={handleLayout}
+              onScrollToIndexFailed={(info) => {
+                flatListRef.current?.scrollToOffset({
+                  offset: info.averageItemLength * info.index,
+                  animated: false,
+                });
+              }}
+              renderItem={({ item }) => {
+                if (item.type === 'heading') {
+                  return <HeadingBlock text={item.text} level={item.level} />;
+                }
+                if (item.type === 'paragraph') {
+                  return <ParagraphBlock text={item.text} />;
+                }
+                return null;
+              }}
             />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Text tone="secondary" align="center">
-                {book.status === 'no-text-layer'
-                  ? 'No extractable text in this chapter (scanned document).'
-                  : 'No text blocks found in this chapter.'}
-              </Text>
-            </View>
-          }
-          initialScrollIndex={
-            initialIndex && initialIndex < displayBlocks.length ? initialIndex : undefined
-          }
-          onScroll={autoHide.scrollHandler}
-          scrollEventThrottle={16}
-          onScrollEndDrag={handleScroll}
-          onMomentumScrollEnd={handleScroll}
-          onContentSizeChange={handleContentSizeChange}
-          onLayout={handleLayout}
-          onScrollToIndexFailed={(info) => {
-            flatListRef.current?.scrollToOffset({
-              offset: info.averageItemLength * info.index,
-              animated: false,
-            });
-          }}
-          renderItem={({ item }) => {
-            if (item.type === 'heading') {
-              return <HeadingBlock text={item.text} level={item.level} />;
-            }
-            if (item.type === 'paragraph') {
-              return <ParagraphBlock text={item.text} />;
-            }
-            return null;
-          }}
-        />
-      </ChapterTransition>
+          </ChapterTransition>
+        </View>
+      </GestureDetector>
+
+      <ReaderSettingsSheet
+        visible={settingsVisible}
+        onDismiss={() => setSettingsVisible(false)}
+        readingSize={readingSize}
+        onChangeReadingSize={onChangeReadingSize}
+        themeMode={themeMode}
+        onChangeThemeMode={onChangeThemeMode}
+      />
     </View>
   );
 }

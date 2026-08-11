@@ -13,3 +13,5 @@ export * from './PressableRow';
 export * from './IconButton';
 export * from './TextLink';
 export * from './TapRegion';
+export * from './SegmentedControl';
+

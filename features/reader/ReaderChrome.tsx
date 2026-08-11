@@ -17,6 +17,7 @@ export type ReaderChromeProps = {
   isVisible: boolean;
   bookTitle: string;
   onBack: () => void;
+  onOpenSettings?: () => void;
   testID?: string;
 };
 
@@ -25,6 +26,7 @@ export function ReaderChrome({
   isVisible,
   bookTitle,
   onBack,
+  onOpenSettings,
   testID,
 }: ReaderChromeProps) {
   const theme = useTheme();
@@ -77,6 +79,11 @@ export function ReaderChrome({
           <Text variant="footnote" tone="secondary" numberOfLines={1} flex>
             {bookTitle}
           </Text>
+          {onOpenSettings && (
+            <IconButton onPress={onOpenSettings} accessibilityLabel="Reader settings">
+              <Ionicons name="text-outline" size={22} color={theme.text.primary} />
+            </IconButton>
+          )}
         </HStack>
       </View>
     </Animated.View>

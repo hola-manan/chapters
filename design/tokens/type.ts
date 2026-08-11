@@ -33,12 +33,19 @@ export const uiType = {
   title1: { fontSize: 28, lineHeight: 34, letterSpacing: -0.5 },
 } as const satisfies Record<string, UITypeStep>;
 
-// Reading Typography Scale
 export interface ReadingTypeConfig {
   baseSize: number;
   leading: number;
   scale: number;
 }
+
+export const readingSizes = {
+  small: 17,
+  default: 19,   // must equal readingConfig.baseSize
+  large: 22,
+} as const;
+
+export type ReadingSizeName = keyof typeof readingSizes;
 
 export const readingConfig: ReadingTypeConfig = {
   baseSize: 19,

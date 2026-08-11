@@ -40,10 +40,21 @@ export const press = {
   spring: springs.default,
 } as const satisfies { scale: number; spring: SpringConfig };
 
+export const dismiss = {
+  // Points per second. A downward flick faster than this dismisses however far it travelled —
+  // deciding on distance alone makes a fast flick feel ignored.
+  flickVelocity: 500,
+  // Fraction of the panel's own height that counts as dragged away.
+  distanceRatio: 1 / 3,
+  // Multiplier applied to drags in the direction with nowhere to go.
+  resistance: 0.2,
+} as const;
+
 export const motion = {
   springs,
   durations,
   easings,
   reducedMotion,
   press,
+  dismiss,
 } as const;
