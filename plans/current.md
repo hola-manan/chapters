@@ -1,72 +1,86 @@
-# Make consecutive swipes possible — stop rebuilding everything on commit
+# Swap the chapter first, animate second
 
 Read `GEMINI.md` first. No hardcoded colours, sizes, radii or durations in `ui/`, `features/` or
 `app/` — there are tests enforcing it.
 
-## The problem, reported from device
+## The problem, diagnosed from device
 
-The drag itself is now perfect. But immediately after committing a swipe, the reader is busy and a
-second swipe cannot be started until it settles.
+The drag tracks the finger perfectly. **After release there is a pause before the next chapter is
+usable.** A previous attempt to fix this by reducing render work made things worse and has been
+reverted; render cost was never the bottleneck.
 
-**The cause: one `setCurrentIndex` invalidates all three layers at once.** On commit, the live
-`FlatList` is remounted (it carries `key={chapter.id}`) with a whole chapter of blocks, *and* both
-neighbour previews re-render because their props changed. Three subtrees are built on the same frame
-that the commit spring is landing on, and the JS thread has nothing left for a new gesture.
+**The cause: the swap waits for a spring to finish.** `ChapterTransition` commits like this —
 
-Almost none of that work is necessary. Moving from chapter N to N+1: the outgoing live chapter
-becomes the previous preview, the next preview becomes the live chapter, and **only chapter N+2 is
-genuinely new**. The current code rebuilds all of it.
+```
+translateX.value = withSpring(-screenWidth, springs.default, (finished) => {
+  if (finished) runOnJS(onNext)();   // ← only fires once the spring has SETTLED
+});
+```
 
-Three fixes, in order of how much they matter.
+`withSpring`'s callback fires when the animation settles inside Reanimated's rest thresholds, not
+when the movement looks finished. `springs.default` is `{ damping: 20, stiffness: 220, mass: 1 }`,
+a damping ratio of ~0.67, which settles in roughly 460ms. The eye sees the movement complete in
+about 150ms; the remaining ~300ms is an invisible tail in which the chapter has not been swapped and
+a new gesture has nothing to act on.
 
-## 1. Stop remounting the FlatList — `app/book/[id]/[chapter].tsx`
+**The fix: stop treating the commit as "animate away, then replace". Swap the chapter immediately
+on release and let the spring carry the already-correct content home.** This is how a pager works,
+and it removes the wait entirely rather than shortening it.
 
-`key={chapter.id}` on the `Animated.FlatList` forces a full unmount, remount and re-virtualisation
-on every chapter change. It is there only to get the new chapter scrolled to the top.
+## The pager maths — get this exactly right
 
-- **Remove the `key` prop.** Change `data` instead and let the list persist.
-- Scroll to the top imperatively when the chapter changes: in a `useLayoutEffect` keyed on
-  `chapter.id`, call `flatListRef.current?.scrollToOffset({ offset: 0, animated: false })`.
-- `initialScrollIndex` now only applies on mount, which is exactly right: resume-on-entry still
-  works because the screen mounts once, and swiped-to chapters start at the top as decided.
+Layers sit at `left: -screenWidth` (prev), `0` (current), `+screenWidth` (next), inside a container
+translated by `translateX`.
 
-## 2. Let the previews update at a lower priority
+Mid-drag toward the next chapter, `translateX` is `tx` (negative). On screen: the current chapter is
+at `tx`, and the next chapter is at `screenWidth + tx`.
 
-The live chapter must be correct on the commit frame. The two previews must not — they are one
-screen-width off-stage and nobody can see them until the *next* gesture starts.
+When the swap happens, the incoming chapter becomes the *current* layer, which sits at `0`. For the
+screen not to jump, `translateX` must simultaneously become `tx + screenWidth`. It then springs to
+`0`, which is the movement the user already expects to see — but the content is correct from the
+first frame of it, so a second gesture can start immediately.
 
-- Drive the previews from `useDeferredValue(currentIndex)` rather than `currentIndex` directly.
-  React 19 will render the live chapter urgently and re-render the previews in a following,
-  interruptible pass, so preview work no longer competes with the commit or with the start of a
-  second swipe.
-- Compute `prevPreview`/`nextPreview` from that deferred index. The live chapter, the transition's
-  `chapterKey`, `hasPrev`/`hasNext` and everything in the progress logic keep using the real
-  `currentIndex` — do not confuse the two, or the wrong chapter will be paged or recorded.
-- Because the deferred value lags by a render, a preview may briefly show the neighbour of the
-  previous index. That is invisible off-stage and is the entire point; do not "fix" it with a
-  synchronous fallback.
+For a previous-chapter commit the offset is `tx - screenWidth`.
 
-## 3. Make preview re-renders cheap — `features/reader/ChapterPreview.tsx`
+## Implementation — `features/reader/ChapterTransition.tsx`
 
-- Wrap the component in `React.memo`. Combined with the deferred index, an unchanged neighbour then
-  costs nothing.
-- Keep the twelve-block slice and the pixel-identical layout. Both are load-bearing — the slice
-  overfills a screen and the layout is what makes the commit swap invisible.
+- Add a `pendingOffset` shared value.
+- In `onEnd`, when a commit threshold is crossed and the target chapter exists: fire the existing
+  selection haptic, set `pendingOffset.value` to `tx + screenWidth` (next) or `tx - screenWidth`
+  (prev), and call `runOnJS(onNext)()` / `runOnJS(onPrev)()` **immediately**. Do not animate
+  `translateX` here and do not pass a completion callback.
+- Replace the body of the existing `useLayoutEffect` keyed on `chapterKey` with:
 
-## 4. Trim the list's mount cost
+  ```
+  translateX.value = pendingOffset.value;              // jump to the equivalent offset
+  translateX.value = withSpring(0, springs.default);   // then travel home
+  pendingOffset.value = 0;
+  ```
 
-On the `Animated.FlatList`, add `initialNumToRender={8}`, `maxToRenderPerBatch={8}` and
-`windowSize={5}`. Chapters can run to hundreds of blocks and the default window renders far more
-than a screen's worth on arrival.
+  `useLayoutEffect` runs after the new chapter has rendered but before the frame is presented, so
+  the jump is never visible. When `pendingOffset` is `0` — entering the screen, or any chapter
+  change that did not come from a gesture — this collapses to "sit at zero", which is correct.
+- **Interruptible settling.** Because the spring now runs *after* the swap, the user can grab the
+  surface while it is still travelling. Add a `startX` shared value: set `startX.value =
+  translateX.value` in `onBegin`, and use `translateX.value = startX.value + event.translationX` in
+  `onUpdate`. Without this, a second gesture snaps the content from wherever the spring had reached
+  back to near zero. Keep the commit threshold measured against `event.translationX` — the gesture's
+  own movement — not against the absolute offset.
+- Apply the same treatment to the imperative `advance()` used by the end card: set `pendingOffset`
+  to `∓screenWidth` and call `onNext`/`onPrev` immediately, with no animation and no callback.
+- Everything else in the gesture stays exactly as it is: the 24pt left-edge dead zone, the
+  `activeOffsetX`/`failOffsetY` configuration, the 25%-of-width commit threshold, the boundary
+  resistance at `×0.25`, and both haptics.
 
-## 5. Do not change
+## Do not change
 
-The reading surface, the chapter opening, `ReaderChrome`, `useAutoHide`, the end card and the
-gesture configuration in `ChapterTransition` are all settled. Progress recording across a chapter
-change was fixed last pass and must keep working exactly as it does — including the flush of the
-outgoing chapter and the reset of all six measurement refs.
+`app/book/[id]/[chapter].tsx` should need no changes at all — it already swaps on `setCurrentIndex`
+and `chapterKey` already changes with the chapter. Do not re-add virtualisation tuning, do not
+remove `key={chapter.id}` from the list, and do not introduce `useDeferredValue`. Those were the
+reverted attempt and they addressed a bottleneck that does not exist. Progress recording across a
+chapter change must keep working exactly as it does.
 
-## 6. Gates
+## Gates
 
 - `npx tsc --noEmit`
 - `npm run lint`
