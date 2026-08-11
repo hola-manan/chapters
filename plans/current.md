@@ -1,84 +1,190 @@
-# Swap the chapter first, animate second
+# Reader settings — Sheet, SegmentedControl, live reading size and theme
 
 Read `GEMINI.md` first. No hardcoded colours, sizes, radii or durations in `ui/`, `features/` or
 `app/` — there are tests enforcing it.
 
-## The problem, diagnosed from device
+**The design decisions below were made by the human and are not open.** Implement them exactly.
 
-The drag tracks the finger perfectly. **After release there is a pause before the next chapter is
-usable.** A previous attempt to fix this by reducing render work made things worse and has been
-reverted; render cost was never the bottleneck.
+Decided:
 
-**The cause: the swap waits for a spring to finish.** `ChapterTransition` commits like this —
+- The sheet holds **two controls: reading size and theme**. Nothing else. No line spacing, no
+  typeface picker.
+- **Reading size has three steps: Small, Default, Large.** Not five, not a slider.
+- **Theme is Light / Dark / System**, and the choice persists across launches.
+- **Pinching the page also changes the reading size**, and the two stay in sync — neither is the
+  authority, they read and write the same value.
+- **One detent, dragged down to dismiss.** The sheet has one resting height.
+- **The page behind the sheet is blurred** (`expo-blur`, already a dependency).
 
+Not in this pass: `Slider` stays `todo` in the inventory. Nothing here needs it.
+
+## 1. Tier 1 — reading size steps
+
+In `design/tokens/type.ts`, add the three sizes. Line height is already derived as
+`round(fontSize * leading)` by `getReadingStyle`, so each step gets a matched leading for free —
+do not tabulate line heights by hand.
+
+```ts
+export const readingSizes = {
+  small: 17,
+  default: 19,   // must equal readingConfig.baseSize
+  large: 22,
+} as const;
+
+export type ReadingSizeName = keyof typeof readingSizes;
 ```
-translateX.value = withSpring(-screenWidth, springs.default, (finished) => {
-  if (finished) runOnJS(onNext)();   // ← only fires once the spring has SETTLED
-});
+
+## 2. Tier 2 — reading size in context
+
+New `ui/theme/ReadingSizeProvider.tsx` (it belongs beside the theme provider — both are
+app-wide display state).
+
+```ts
+export type ReadingSizeContextValue = {
+  size: ReadingSizeName;
+  setSize: (size: ReadingSizeName) => void;
+  step: (direction: 'up' | 'down') => void;  // clamped at the ends, returns silently at a limit
+};
+
+export function ReadingSizeProvider(props: {
+  value: ReadingSizeName;
+  onChange: (size: ReadingSizeName) => void;
+  children: React.ReactNode;
+}): JSX.Element;
+
+export function useReadingSize(): ReadingSizeContextValue;
 ```
 
-`withSpring`'s callback fires when the animation settles inside Reanimated's rest thresholds, not
-when the movement looks finished. `springs.default` is `{ damping: 20, stiffness: 220, mass: 1 }`,
-a damping ratio of ~0.67, which settles in roughly 460ms. The eye sees the movement complete in
-about 150ms; the remaining ~300ms is an invisible tail in which the chapter has not been swapped and
-a new gesture has nothing to act on.
+- The provider is **controlled** — it holds no state of its own. The root layout owns the value and
+  its persistence; this only distributes it. That is what keeps a single source of truth between the
+  pinch gesture and the sheet.
+- `ReadingText` calls `useReadingSize()` and passes the resolved size into `getReadingStyle`. It must
+  still work with no provider above it (the gallery renders it bare) — fall back to
+  `readingConfig.baseSize`.
+- Export both from `ui/theme/index.ts` and `ui/index.ts`.
 
-**The fix: stop treating the commit as "animate away, then replace". Swap the chapter immediately
-on release and let the spring carry the already-correct content home.** This is how a pager works,
-and it removes the wait entirely rather than shortening it.
+## 3. Tier 2 — `ui/primitives/SegmentedControl.tsx`
 
-## The pager maths — get this exactly right
+```ts
+export type SegmentedControlProps<T extends string> = {
+  options: readonly { value: T; label: string }[];
+  value: T;
+  onChange: (value: T) => void;
+  testID?: string;
+};
+```
 
-Layers sit at `left: -screenWidth` (prev), `0` (current), `+screenWidth` (next), inside a container
-translated by `translateX`.
+- A `Surface sunken` track with a raised indicator behind the selected label. The indicator moves
+  with `withSpring` using `springs.default`; measure segment width with `onLayout` rather than
+  assuming equal division from screen width.
+- Labels use `Text variant="footnote" weight="medium"`; the selected label goes `weight="semibold"`,
+  unselected `tone="secondary"`.
+- Each segment is a `Pressable` with `feedback="none"` — the indicator moving *is* the feedback, and
+  a scale or overlay on top of it reads as two responses to one tap.
+- `Haptics.selectionAsync()` on a change that actually changes the value. This is a deliberate
+  choice by the user, which is what the haptics policy means by consequential; do not fire it when
+  the same segment is tapped again.
+- Degrade under `useReducedMotion()`: cross-fade the indicator instead of sliding it.
 
-Mid-drag toward the next chapter, `translateX` is `tx` (negative). On screen: the current chapter is
-at `tx`, and the next chapter is at `screenWidth + tx`.
+## 4. Tier 2 — `ui/overlay/Sheet.tsx`
 
-When the swap happens, the incoming chapter becomes the *current* layer, which sits at `0`. For the
-screen not to jump, `translateX` must simultaneously become `tx + screenWidth`. It then springs to
-`0`, which is the movement the user already expects to see — but the content is correct from the
-first frame of it, so a second gesture can start immediately.
+New directory `ui/overlay/`. This is the richest reusable component in the project — build it
+properly.
 
-For a previous-chapter commit the offset is `tx - screenWidth`.
+```ts
+export type SheetProps = {
+  visible: boolean;
+  onDismiss: () => void;
+  children: React.ReactNode;
+  testID?: string;
+};
+```
 
-## Implementation — `features/reader/ChapterTransition.tsx`
+- Renders through React Native's `Modal` with `transparent` and `animationType="none"` — the
+  animation is ours, not the platform's.
+- Backdrop is a `BlurView` from `expo-blur`, tint following `theme.scheme`, animated from 0 to full
+  intensity alongside the sheet. Tapping the backdrop dismisses.
+- The sheet panel is a `Surface elevation={2}` with a large top radius, bottom-anchored, sized by its
+  content — **no fixed height**. It must respect `useSafeAreaInsets().bottom` as extra bottom
+  padding.
+- A grab handle at the top: a short rounded bar in `theme.border.subtle`, centred.
+- Entry and exit animate `translateY` with `springs.default`, from the panel's measured height.
+- **Drag to dismiss must use velocity, not just distance.** A `Gesture.Pan()` on the panel tracks
+  downward movement; on release, dismiss if the panel has travelled past a third of its height **or**
+  if `event.velocityY` exceeds a flick threshold. Distance alone makes a fast flick feel ignored.
+  Resist upward drags (multiply by 0.2) — there is nowhere above to go.
+- Support the Android back button via `Modal`'s `onRequestClose`.
+- Export from `ui/overlay/index.ts` and `ui/index.ts`.
 
-- Add a `pendingOffset` shared value.
-- In `onEnd`, when a commit threshold is crossed and the target chapter exists: fire the existing
-  selection haptic, set `pendingOffset.value` to `tx + screenWidth` (next) or `tx - screenWidth`
-  (prev), and call `runOnJS(onNext)()` / `runOnJS(onPrev)()` **immediately**. Do not animate
-  `translateX` here and do not pass a completion callback.
-- Replace the body of the existing `useLayoutEffect` keyed on `chapterKey` with:
+## 5. Persistence — `storage/settings.ts`
 
-  ```
-  translateX.value = pendingOffset.value;              // jump to the equivalent offset
-  translateX.value = withSpring(0, springs.default);   // then travel home
-  pendingOffset.value = 0;
-  ```
+```ts
+export type AppSettings = {
+  readingSize: ReadingSizeName;   // default 'default'
+  themeMode: 'light' | 'dark' | 'system';  // default 'system'
+};
 
-  `useLayoutEffect` runs after the new chapter has rendered but before the frame is presented, so
-  the jump is never visible. When `pendingOffset` is `0` — entering the screen, or any chapter
-  change that did not come from a gesture — this collapses to "sit at zero", which is correct.
-- **Interruptible settling.** Because the spring now runs *after* the swap, the user can grab the
-  surface while it is still travelling. Add a `startX` shared value: set `startX.value =
-  translateX.value` in `onBegin`, and use `translateX.value = startX.value + event.translationX` in
-  `onUpdate`. Without this, a second gesture snaps the content from wherever the spring had reached
-  back to near zero. Keep the commit threshold measured against `event.translationX` — the gesture's
-  own movement — not against the absolute offset.
-- Apply the same treatment to the imperative `advance()` used by the end card: set `pendingOffset`
-  to `∓screenWidth` and call `onNext`/`onPrev` immediately, with no animation and no callback.
-- Everything else in the gesture stays exactly as it is: the 24pt left-edge dead zone, the
-  `activeOffsetX`/`failOffsetY` configuration, the 25%-of-width commit threshold, the boundary
-  resistance at `×0.25`, and both haptics.
+export async function getSettings(): Promise<AppSettings>;
+export async function saveSettings(settings: AppSettings): Promise<void>;
+```
 
-## Do not change
+- One JSON file in the document directory, same shape as the other storage modules. Missing or
+  malformed file returns the defaults — never throw.
+- Serialise writes through a promise chain, exactly as `saveReadingPosition` does, so two rapid
+  changes cannot interleave a read-modify-write.
+- Export from `storage/index.ts`.
 
-`app/book/[id]/[chapter].tsx` should need no changes at all — it already swaps on `setCurrentIndex`
-and `chapterKey` already changes with the chapter. Do not re-add virtualisation tuning, do not
-remove `key={chapter.id}` from the list, and do not introduce `useDeferredValue`. Those were the
-reverted attempt and they addressed a bottleneck that does not exist. Progress recording across a
-chapter change must keep working exactly as it does.
+## 6. Wire it up — `app/_layout.tsx`
+
+- Load settings alongside the fonts and **keep the splash screen up until both are ready**. A flash
+  of the wrong theme or size on every launch is the whole reason to load before first paint.
+- Hold `readingSize` and `themeMode` in state; pass `themeMode` to `ThemeProvider` as
+  `themeOverride` (mapping `'system'` to `undefined`), and wrap the tree in `ReadingSizeProvider`.
+- Every change writes through `saveSettings`.
+
+## 7. Tier 3 — `features/reader/ReaderSettingsSheet.tsx`
+
+```ts
+export type ReaderSettingsSheetProps = {
+  visible: boolean;
+  onDismiss: () => void;
+  readingSize: ReadingSizeName;
+  onChangeReadingSize: (size: ReadingSizeName) => void;
+  themeMode: 'light' | 'dark' | 'system';
+  onChangeThemeMode: (mode: 'light' | 'dark' | 'system') => void;
+};
+```
+
+Two labelled rows inside a `Sheet`: `TEXT SIZE` with segments Small / Default / Large, and
+`APPEARANCE` with Light / Dark / System. Labels are `Text variant="caption" tone="secondary"
+weight="semibold"`, uppercased. Both rows are `SegmentedControl`. Nothing else in the sheet — no
+title bar, no done button; the handle and drag-to-dismiss are the affordance.
+
+## 8. Opening it, and the pinch gesture
+
+- `ReaderChrome` gains an `onOpenSettings` prop and an `IconButton` at the trailing end of the bar,
+  opposite the back chevron. Use the `text` glyph from `@expo/vector-icons` Ionicons
+  (`"text-outline"`), which reads as "Aa".
+- In `app/book/[id]/[chapter].tsx`, wrap `ChapterTransition` in a `GestureDetector` running a
+  `Gesture.Pinch()`. Nested detectors are fine here — pinch needs two fingers and the chapter pan
+  needs one, so they cannot both claim a gesture.
+- **Apply the step as soon as a threshold is crossed, not on release.** Pinching out past a scale of
+  1.15 steps up one size; pinching in below 0.87 steps down one. Latch after each step (track the
+  scale at which the last step fired) so one continuous pinch can travel Small → Default → Large but
+  cannot fire twice for the same movement. Fire `Haptics.selectionAsync()` on each step, and nothing
+  at all when already at a limit.
+- Three discrete steps mean at most two re-renders during a pinch, which is why this can be live at
+  all. Do not make the size continuous.
+
+## 9. Gallery — `app/_dev/gallery.tsx`
+
+Add a section with `SegmentedControl` in a two-option and a three-option configuration, and a button
+opening a `Sheet` containing sample rows, so both are exercisable outside the reader.
+
+## 10. Do not change
+
+The reading surface, chapter opening, chrome behaviour, `useAutoHide`, the end card, chapter paging
+and its commit timing are all settled. Progress recording must keep working exactly as it does.
 
 ## Gates
 
@@ -88,8 +194,9 @@ chapter change must keep working exactly as it does.
 
 ## Constraints
 
-- **Do not touch anything outside this project directory.** List any out-of-repo need at the end of
-  your response instead of acting on it.
+- **Do not touch anything outside this project directory.** `expo-blur` is already a dependency —
+  no installs are needed. If you find any other out-of-repo need, list it at the end of your
+  response instead of acting on it.
 - **Do not commit.** Leave the tree dirty for review.
 - `pdfs/` is read-only.
 - Do not upgrade Expo, React Native or any pinned dependency. SDK 54 is a hard constraint.
