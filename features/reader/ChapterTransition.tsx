@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
-import React, { useEffect } from 'react';
-import { StyleSheet, useWindowDimensions } from 'react-native';
+import React, { useImperativeHandle, useLayoutEffect } from 'react';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   runOnJS,
@@ -9,6 +9,10 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { springs } from '../../design';
+
+export type ChapterTransitionRef = {
+  advance: (direction: 'prev' | 'next') => void;
+};
 
 export type ChapterTransitionProps = {
   // Changes when the chapter changes, which is what returns the surface to centre. Navigating
@@ -20,26 +24,37 @@ export type ChapterTransitionProps = {
   onPrev: () => void;
   onNext: () => void;
   onTap: () => void;
+  prevPreview?: React.ReactNode;
+  nextPreview?: React.ReactNode;
   children: React.ReactNode;
 };
 
 const LEFT_EDGE_DEAD_ZONE = 24;
 
-export function ChapterTransition({
-  chapterKey,
-  hasPrev,
-  hasNext,
-  onPrev,
-  onNext,
-  onTap,
-  children,
-}: ChapterTransitionProps) {
+export const ChapterTransition = React.forwardRef<
+  ChapterTransitionRef,
+  ChapterTransitionProps
+>(function ChapterTransition(
+  {
+    chapterKey,
+    hasPrev,
+    hasNext,
+    onPrev,
+    onNext,
+    onTap,
+    prevPreview,
+    nextPreview,
+    children,
+  },
+  ref
+) {
   const { width: screenWidth } = useWindowDimensions();
   const translateX = useSharedValue(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     translateX.value = 0;
   }, [chapterKey, translateX]);
+
   const isIgnored = useSharedValue(false);
   const hasFiredBoundaryHaptic = useSharedValue(false);
 
@@ -58,6 +73,30 @@ export function ChapterTransition({
       // Haptics unavailable on platform
     }
   };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      advance(direction: 'prev' | 'next') {
+        if (direction === 'next' && hasNext) {
+          triggerSelectionHaptic();
+          translateX.value = withSpring(-screenWidth, springs.default, (finished) => {
+            if (finished) {
+              runOnJS(onNext)();
+            }
+          });
+        } else if (direction === 'prev' && hasPrev) {
+          triggerSelectionHaptic();
+          translateX.value = withSpring(screenWidth, springs.default, (finished) => {
+            if (finished) {
+              runOnJS(onPrev)();
+            }
+          });
+        }
+      },
+    }),
+    [hasNext, hasPrev, onNext, onPrev, screenWidth, translateX]
+  );
 
   const commitThreshold = screenWidth * 0.25;
 
@@ -132,14 +171,37 @@ export function ChapterTransition({
   return (
     <GestureDetector gesture={composedGesture}>
       <Animated.View style={[styles.container, animatedStyle]}>
-        {children}
+        {hasPrev && prevPreview ? (
+          <View
+            style={[styles.layer, { left: -screenWidth, width: screenWidth }]}
+            pointerEvents="none"
+          >
+            {prevPreview}
+          </View>
+        ) : null}
+        <View style={[styles.layer, { left: 0, width: screenWidth }]}>
+          {children}
+        </View>
+        {hasNext && nextPreview ? (
+          <View
+            style={[styles.layer, { left: screenWidth, width: screenWidth }]}
+            pointerEvents="none"
+          >
+            {nextPreview}
+          </View>
+        ) : null}
       </Animated.View>
     </GestureDetector>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  layer: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
   },
 });

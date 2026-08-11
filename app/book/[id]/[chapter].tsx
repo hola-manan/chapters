@@ -14,13 +14,15 @@ import { space } from '../../../design';
 import {
   ChapterEndCard,
   ChapterOpening,
+  ChapterPreview,
   ChapterTransition,
+  ChapterTransitionRef,
   HeadingBlock,
   ParagraphBlock,
   ReaderChrome,
 } from '../../../features';
 import { displayTitle } from '../../../pdf';
-import type { Book, Chapter } from '../../../pdf/types';
+import type { Book } from '../../../pdf/types';
 import { getBook, getReadingPosition, saveReadingPosition } from '../../../storage';
 import { Text, useAutoHide, useTheme } from '../../../ui';
 
@@ -28,14 +30,16 @@ export default function ReaderScreen() {
   const { id, chapter: chapterId } = useLocalSearchParams<{ id: string; chapter: string }>();
   const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
+  const transitionRef = useRef<ChapterTransitionRef>(null);
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const autoHide = useAutoHide();
 
   const [book, setBook] = useState<Book | null>(null);
-  const [chapter, setChapter] = useState<Chapter | null>(null);
+  const [currentIndex, setCurrentIndex] = useState<number | null>(null);
   const [initialIndex, setInitialIndex] = useState<number | null>(null);
 
+  const prevIndexRef = useRef<number | null>(null);
   const maxProgressRef = useRef<number>(0);
   const maxBlockIndexRef = useRef<number>(0);
   const contentHeightRef = useRef<number>(0);
@@ -43,42 +47,77 @@ export default function ReaderScreen() {
   const isScrollableRef = useRef<boolean>(false);
   const hasMeasuredRef = useRef<boolean>(false);
 
+  // The book is read from disk exactly once. Paging between chapters must not re-enter this —
+  // every chapter is already in `book.chapters`, and re-fetching would put a disk read and a
+  // whole-tree re-render in the middle of a swipe, which is the thing paging exists to avoid.
+  // Hence the ref guard rather than a `currentIndex` dependency.
+  const didInitRef = useRef(false);
+
   useEffect(() => {
-    if (id) {
-      getBook(id).then((b) => {
-        setBook(b);
-        if (b && chapterId) {
-          const found = b.chapters.find((c) => c.id === chapterId);
-          setChapter(found || null);
-          getReadingPosition(id, chapterId).then((pos) => {
+    if (!id || didInitRef.current) return;
+
+    getBook(id).then((b) => {
+      setBook(b);
+      if (b && chapterId && !didInitRef.current) {
+        didInitRef.current = true;
+        const idx = b.chapters.findIndex((c) => c.id === chapterId);
+        const foundIdx = idx !== -1 ? idx : 0;
+        setCurrentIndex(foundIdx);
+        prevIndexRef.current = foundIdx;
+        const foundChapter = b.chapters[foundIdx];
+        if (foundChapter) {
+          // Resume applies on entry only. A chapter arrived at by swiping starts at the top.
+          getReadingPosition(id, foundChapter.id).then((pos) => {
             setInitialIndex(pos.blockIndex);
             maxProgressRef.current = pos.progress;
             maxBlockIndexRef.current = pos.blockIndex;
           });
         }
-      });
-    }
+      }
+    });
   }, [id, chapterId]);
+
+  useEffect(() => {
+    if (currentIndex === null || !book || !id) return;
+
+    if (prevIndexRef.current !== null && prevIndexRef.current !== currentIndex) {
+      const prevChapter = book.chapters[prevIndexRef.current];
+      if (prevChapter) {
+        if (hasMeasuredRef.current && !isScrollableRef.current) {
+          maxProgressRef.current = 1;
+        }
+        saveReadingPosition(id, prevChapter.id, maxBlockIndexRef.current, maxProgressRef.current);
+      }
+
+      maxProgressRef.current = 0;
+      maxBlockIndexRef.current = 0;
+      contentHeightRef.current = 0;
+      layoutHeightRef.current = 0;
+      isScrollableRef.current = false;
+      hasMeasuredRef.current = false;
+      setInitialIndex(null);
+    }
+
+    prevIndexRef.current = currentIndex;
+  }, [currentIndex, book, id]);
 
   useFocusEffect(
     useCallback(() => {
       return () => {
-        if (!id || !chapterId) return;
+        if (!id || currentIndex === null || !book) return;
+        const activeChapter = book.chapters[currentIndex];
+        if (!activeChapter) return;
 
-        // Handle chapters that do not scroll: if content size <= layout measurement the whole
-        // chapter is on screen and no scroll event will ever fire, so record it complete on exit.
-        // Only once both have actually been measured — otherwise backing out before the list lays
-        // out would mark an unread chapter as finished.
         if (hasMeasuredRef.current && !isScrollableRef.current) {
           maxProgressRef.current = 1;
         }
 
-        saveReadingPosition(id, chapterId, maxBlockIndexRef.current, maxProgressRef.current);
+        saveReadingPosition(id, activeChapter.id, maxBlockIndexRef.current, maxProgressRef.current);
       };
-    }, [id, chapterId])
+    }, [id, currentIndex, book])
   );
 
-  if (!book || !chapter) {
+  if (!book || currentIndex === null || !book.chapters[currentIndex]) {
     return (
       <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
         <View style={styles.emptyContainer}>
@@ -88,12 +127,10 @@ export default function ReaderScreen() {
     );
   }
 
-  const currentChapterIdx = book.chapters.findIndex((c) => c.id === chapter.id);
-  const prevChapter = currentChapterIdx > 0 ? book.chapters[currentChapterIdx - 1] : null;
+  const chapter = book.chapters[currentIndex];
+  const prevChapter = currentIndex > 0 ? book.chapters[currentIndex - 1] : null;
   const nextChapter =
-    currentChapterIdx >= 0 && currentChapterIdx < book.chapters.length - 1
-      ? book.chapters[currentChapterIdx + 1]
-      : null;
+    currentIndex < book.chapters.length - 1 ? book.chapters[currentIndex + 1] : null;
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
@@ -106,7 +143,6 @@ export default function ReaderScreen() {
       hasMeasuredRef.current = true;
     }
 
-    // Estimate block index based on average block height (~40px)
     const blockIndex = Math.max(0, Math.floor(yOffset / 40));
     const maxScroll = contentSize.height - layoutMeasurement.height;
     const progress = maxScroll > 0 ? Math.min(1, Math.max(0, yOffset / maxScroll)) : 1;
@@ -118,8 +154,8 @@ export default function ReaderScreen() {
       maxBlockIndexRef.current = blockIndex;
     }
 
-    if (id && chapterId) {
-      saveReadingPosition(id, chapterId, maxBlockIndexRef.current, maxProgressRef.current);
+    if (id && chapter) {
+      saveReadingPosition(id, chapter.id, maxBlockIndexRef.current, maxProgressRef.current);
     }
   };
 
@@ -142,6 +178,22 @@ export default function ReaderScreen() {
 
   const displayBlocks = chapter.blocks.filter((b) => b.type !== 'pagebreak');
 
+  const prevPreview = prevChapter ? (
+    <ChapterPreview
+      chapter={prevChapter}
+      chapterNumber={currentIndex}
+      chapterCount={book.chapters.length}
+    />
+  ) : undefined;
+
+  const nextPreview = nextChapter ? (
+    <ChapterPreview
+      chapter={nextChapter}
+      chapterNumber={currentIndex + 2}
+      chapterCount={book.chapters.length}
+    />
+  ) : undefined;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
       <ReaderChrome
@@ -152,15 +204,19 @@ export default function ReaderScreen() {
       />
 
       <ChapterTransition
+        ref={transitionRef}
         chapterKey={chapter.id}
         hasPrev={Boolean(prevChapter)}
         hasNext={Boolean(nextChapter)}
-        onPrev={() => prevChapter && router.replace(`/book/${book.id}/${prevChapter.id}`)}
-        onNext={() => nextChapter && router.replace(`/book/${book.id}/${nextChapter.id}`)}
+        onPrev={() => setCurrentIndex((i) => (i !== null && i > 0 ? i - 1 : i))}
+        onNext={() => setCurrentIndex((i) => (i !== null && i < book.chapters.length - 1 ? i + 1 : i))}
         onTap={() => autoHide.toggle()}
+        prevPreview={prevPreview}
+        nextPreview={nextPreview}
       >
         <Animated.FlatList
           ref={flatListRef}
+          key={chapter.id}
           data={displayBlocks}
           keyExtractor={(_, index) => `block_${index}`}
           contentContainerStyle={[
@@ -174,7 +230,7 @@ export default function ReaderScreen() {
             <View style={styles.headerContainer}>
               <ChapterOpening
                 title={displayTitle(chapter.title)}
-                chapterNumber={currentChapterIdx + 1}
+                chapterNumber={currentIndex + 1}
                 chapterCount={book.chapters.length}
               />
             </View>
@@ -186,7 +242,7 @@ export default function ReaderScreen() {
               bookTitle={book.title}
               onNext={
                 nextChapter
-                  ? () => router.replace(`/book/${book.id}/${nextChapter.id}`)
+                  ? () => transitionRef.current?.advance('next')
                   : undefined
               }
               onBackToContents={() => router.replace(`/book/${book.id}`)}
