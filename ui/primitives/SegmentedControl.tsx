@@ -149,10 +149,13 @@ export function SegmentedControl<T extends string>({
                 style={styles.segmentFlex}
                 onLayout={(e) => handleSegmentLayout(opt.value, e)}
               >
+                {/* No `flex` here. The wrapper is a column box whose height comes from its
+                    content, and a flex:1 child in one of those takes a flex basis of zero and
+                    collapses to nothing — the control renders but is invisible. Cross-axis
+                    stretch already gives the Pressable the full segment width. */}
                 <Pressable
                   onPress={() => handlePress(opt.value)}
                   feedback="none"
-                  flex
                   radius="sm"
                 >
                   <View style={styles.segmentContent}>

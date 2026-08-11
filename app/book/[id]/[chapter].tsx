@@ -8,7 +8,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, { runOnJS, useSharedValue } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,6 +29,11 @@ import type { Book } from '../../../pdf/types';
 import { getBook, getReadingPosition, saveReadingPosition } from '../../../storage';
 import { Text, useAutoHide, useReadingSize, useTheme, useThemeMode } from '../../../ui';
 
+// Relative pinch travel that commits one size step. Small enough to feel responsive, large enough
+// that an unsteady two-finger rest does not trip it.
+const PINCH_STEP_UP = 1.1;
+const PINCH_STEP_DOWN = 0.91;
+
 export default function ReaderScreen() {
   const { id, chapter: chapterId } = useLocalSearchParams<{ id: string; chapter: string }>();
   const router = useRouter();
@@ -42,42 +47,44 @@ export default function ReaderScreen() {
   const { mode: themeMode, setMode: onChangeThemeMode } = useThemeMode();
   const [settingsVisible, setSettingsVisible] = useState(false);
 
-  const lastStepScaleRef = useRef(1.0);
   const sizeRef = useRef(readingSize);
   sizeRef.current = readingSize;
   const stepRef = useRef(stepReadingSize);
   stepRef.current = stepReadingSize;
 
+  // Scale at which the last step fired, so one continuous pinch can travel small → default →
+  // large without firing twice for the same movement. A shared value, not a ref, because the
+  // gesture below runs on the UI thread.
+  const pinchLatch = useSharedValue(1);
+
+  const stepSize = useCallback((direction: 'up' | 'down') => {
+    const atLimit =
+      (direction === 'up' && sizeRef.current === 'large') ||
+      (direction === 'down' && sizeRef.current === 'small');
+    if (atLimit) return;
+    try {
+      void Haptics.selectionAsync();
+    } catch {
+      // Haptics unavailable on platform
+    }
+    stepRef.current(direction);
+  }, []);
+
   const pinchGesture = Gesture.Pinch()
-    .runOnJS(true)
+    // Deliberately NOT .runOnJS(true): that moves the whole gesture onto the JS thread, where
+    // recognition competes with rendering and the pinch reads as sluggish. Only the step itself
+    // needs JS.
     .onStart(() => {
-      lastStepScaleRef.current = 1.0;
+      pinchLatch.value = 1;
     })
     .onUpdate((event) => {
-      const scale = event.scale;
-      const lastScale = lastStepScaleRef.current;
-      const relScale = scale / lastScale;
-
-      if (relScale >= 1.15) {
-        if (sizeRef.current !== 'large') {
-          try {
-            void Haptics.selectionAsync();
-          } catch {
-            // Haptics unavailable
-          }
-          stepRef.current('up');
-        }
-        lastStepScaleRef.current = scale;
-      } else if (relScale <= 0.87) {
-        if (sizeRef.current !== 'small') {
-          try {
-            void Haptics.selectionAsync();
-          } catch {
-            // Haptics unavailable
-          }
-          stepRef.current('down');
-        }
-        lastStepScaleRef.current = scale;
+      const relative = event.scale / pinchLatch.value;
+      if (relative >= PINCH_STEP_UP) {
+        pinchLatch.value = event.scale;
+        runOnJS(stepSize)('up');
+      } else if (relative <= PINCH_STEP_DOWN) {
+        pinchLatch.value = event.scale;
+        runOnJS(stepSize)('down');
       }
     });
 
