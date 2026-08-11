@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { radius, space } from '../../design/index.ts';
-import type { Block } from '../../pdf/types.ts';
+import { BookCard, GeneratedCover, ImportTile } from '../../features/index.ts';
+import type { Block, Book } from '../../pdf/types.ts';
 import { listBooks } from '../../storage/index.ts';
 import {
   HStack,
@@ -39,6 +40,39 @@ const GAP_STEPS = [
   { key: 'xxl', px: space.xxl },
   { key: 'xxxl', px: space.xxxl },
 ] as const;
+
+const COVER_SEEDS = [
+  'Laugh Tactics: Master Conversational Humor and Be Funny On Command',
+  'The Elements of Typographic Style',
+  'Short Title',
+  'Structure and Interpretation of Computer Programs',
+  'Design Systems',
+  'The Extraordinary History of the Empire of the Setting Sun',
+  'A',
+  'Crafting Interpreters',
+];
+
+const DEMO_LONG_BOOK: Book = {
+  id: 'demo-long',
+  title: 'Laugh Tactics: Master Conversational Humor and Be Funny On Command',
+  addedAt: 1700000000000,
+  pageCount: 248,
+  status: 'ready',
+  chapterSource: 'outline',
+  chapters: Array(14).fill({ id: 'ch', title: 'Ch', startPage: 1, endPage: 10, blocks: [] }),
+  sourceUri: '',
+};
+
+const DEMO_SHORT_BOOK: Book = {
+  id: 'demo-short',
+  title: 'Short Title',
+  addedAt: 1700000000000,
+  pageCount: 32,
+  status: 'ready',
+  chapterSource: 'outline',
+  chapters: Array(3).fill({ id: 'ch', title: 'Ch', startPage: 1, endPage: 10, blocks: [] }),
+  sourceUri: '',
+};
 
 export default function Gallery() {
   const [themeMode, setThemeMode] = useState<'system' | 'light' | 'dark'>('system');
@@ -623,6 +657,54 @@ function GalleryContent({
             </VStack>
           </VStack>
         </Section>
+
+        {/* Section 11: Library Components */}
+        <Section title="Library Components (Covers, Cards & Import Tile)" borderBottomColor={theme.border.subtle}>
+          <VStack gap="xl">
+            {/* 1. Eight GeneratedCovers */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                1. GeneratedCover (8 Seeds for Variety & Coherence)
+              </Text>
+              <View style={styles.coverGrid}>
+                {COVER_SEEDS.map((seed, idx) => (
+                  <View key={idx} style={styles.coverGridItem}>
+                    <GeneratedCover seed={seed} radius="md" />
+                    <Text variant="caption" tone="secondary" numberOfLines={1}>
+                      {seed}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </VStack>
+
+            {/* 2. Side-by-Side BookCards (Truncation Test) */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                2. Side-by-Side BookCard Truncation Behavior
+              </Text>
+              <HStack gap="md">
+                <View style={styles.sideBySideCard}>
+                  <BookCard book={DEMO_LONG_BOOK} />
+                </View>
+                <View style={styles.sideBySideCard}>
+                  <BookCard book={DEMO_SHORT_BOOK} />
+                </View>
+              </HStack>
+            </VStack>
+
+            {/* 3. ImportTile States */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                3. ImportTile (Idle vs. Importing States)
+              </Text>
+              <VStack gap="md">
+                <ImportTile onPress={() => {}} />
+                <ImportTile isImporting stage="extracting text" pct={42} />
+              </VStack>
+            </VStack>
+          </VStack>
+        </Section>
       </ScrollView>
 
       {/* Theme Selection Controls */}
@@ -739,5 +821,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: space[12],
     paddingVertical: space.xs,
     borderRadius: radius.pill,
+  },
+  coverGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: space[12],
+  },
+  coverGridItem: {
+    width: '47%',
+    gap: space.xs,
+  },
+  sideBySideCard: {
+    flex: 1,
   },
 });

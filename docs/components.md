@@ -58,10 +58,10 @@ per-component decisions cannot cohere without them.
 
 | # | Component | Status | The interesting problem in it |
 |---|---|---|---|
-| 16 | `GeneratedCover` | todo | Covers are generated, not extracted — deterministic gradient plus title in the reading face, hashed from the title. Sidesteps PDF thumbnailing and gives a generative-design surface. |
-| 17 | `BookCard` | todo | Cover / title / meta hierarchy at small size. Where a grid lives or dies. |
-| 18 | `LibraryGrid` | todo | Grid rhythm, column count, gutters, scroll padding. |
-| 19 | `ImportTile` | todo | The primary action, placed in the content flow rather than floating over it. |
+| 16 | `GeneratedCover` | **built** | Deterministic abstract banner from a djb2 hash of the title — no PDF thumbnailing, no cover art needed. **Hue is constrained to a ~150–195° arc** (teal–forest–slate) with lightness and saturation carrying most of the variation: free-range hashing produces colours unrelated to the system and a library of those reads as a bug. Three layout presets. 16:9, title deliberately *not* set inside it. Uses `theme.scheme` — the one legitimate case for knowing light vs dark, because a procedural lightness band cannot be expressed as a single token. |
+| 17 | `BookCard` | **built** | Wide banner card, **not** a 2:3 portrait cover — a book-shaped cover would signal hours of commitment, and this app is a ~5-minute-read viewer. Title below the art in UI type, 2 lines with truncation (real titles run past 80 chars). Metadata uses `secondary`, never `tertiary`. Radius lives on the `PressableCard`, not an inner `Surface`. |
+| 18 | `LibraryFeed` | **built** | Single column, not a grid — decided by geometry: two wide cards per row leaves ~160pt each at phone width, too narrow for a banner to be worth generating. |
+| 19 | `ImportTile` | **built** | First item in the feed, in the content flow rather than floating over it. Idle and importing states; the importing state is deliberately plain text until #20 designs it. Delete is a long-press → native destructive `Alert`, with haptics (a consequential action, which is the policy). |
 | 20 | `ImportProgressCard` | todo | The parse wait as a designed moment: optimistic insert, live stages, skeleton filling in. |
 | 21 | ~~`UnreadableBookState`~~ | **cut** | Decided 2026-08-10: unreadable PDFs are rejected at import with an error, never added to the library. So there is no unreadable state to design, no empty reader, and no per-book branching downstream. The rejection message lives in the import flow (#20). |
 | 22 | `ContentsHeader` | todo | Book title block and its collapse into the nav bar. |

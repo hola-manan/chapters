@@ -7,6 +7,13 @@ import { darkGround, darkInk, forest, neutrals, overlay, pure, teal } from './to
  */
 
 export interface Theme {
+  /**
+   * Color scheme identifier.
+   * Used strictly for procedural generation (e.g. GeneratedCover) where lightness bands
+   * cannot be expressed as a single color token. Standard components must still consume
+   * semantic tokens instead of branching on scheme.
+   */
+  scheme: 'light' | 'dark';
   surface: {
     page: string;
     raised: string;
@@ -37,6 +44,7 @@ export interface Theme {
 }
 
 export const lightTheme: Theme = {
+  scheme: 'light',
   surface: {
     page: neutrals.paper,
     raised: pure.white,
@@ -69,6 +77,7 @@ export const lightTheme: Theme = {
 // Derived dark theme.
 // Note: This theme is derived algorithmically from light values and has not yet been reviewed on device.
 export const darkTheme: Theme = {
+  scheme: 'dark',
   surface: {
     page: darkGround[900],
     raised: darkGround[800],

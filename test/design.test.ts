@@ -98,12 +98,14 @@ test('verify themes.ts contains no hex literals', () => {
   );
 });
 
-test('verify files under ui/ contain no hex colour literals', () => {
+test('verify files under ui/ and features/ contain no hex colour literals', () => {
   const uiDir = path.resolve(process.cwd(), 'ui');
+  const featuresDir = path.resolve(process.cwd(), 'features');
   assert.ok(fs.existsSync(uiDir), 'ui/ directory must exist');
+  assert.ok(fs.existsSync(featuresDir), 'features/ directory must exist');
 
-  const files = getTsFiles(uiDir);
-  assert.ok(files.length > 0, 'ui/ directory must contain files');
+  const files = [...getTsFiles(uiDir), ...getTsFiles(featuresDir)];
+  assert.ok(files.length > 0, 'ui/ and features/ directories must contain files');
 
   const hexRegex = /#[0-9a-fA-F]{3,8}\b/g;
   const violations: { file: string; matches: string[] }[] = [];
@@ -123,7 +125,7 @@ test('verify files under ui/ contain no hex colour literals', () => {
   assert.strictEqual(
     violations.length,
     0,
-    `Files under ui/ must not contain hex colour literals. Tier 2 must read every colour from the theme. Found violations:\n${JSON.stringify(
+    `Files under ui/ and features/ must not contain hex colour literals. Found violations:\n${JSON.stringify(
       violations,
       null,
       2

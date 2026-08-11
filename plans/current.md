@@ -1,114 +1,118 @@
-# Component pass 4 — Pressable and its derived variants
+# Library pass — GeneratedCover, BookCard, LibraryFeed, ImportTile
 
 ## Goal
 
-Build the interaction primitive and the five specialised components that derive from it. This is
-the most reused component in the codebase and the first place the springy motion decision becomes
-real.
+Make the Library screen real. This is the first screen to leave the ugly skeleton behind and the
+first time the primitives compose into actual UI.
 
-Read `GEMINI.md` first. `ui/` may import from `design/` only, may never hardcode a colour, size,
-radius or duration, and must not accept a `style` prop or spread `...rest`.
+Read `GEMINI.md` first. These are **tier 3** components: they live in `features/library/`, may
+import from `design/` and `ui/` and the app's own types, and must still never hardcode a colour,
+size, radius or duration.
 
 ## Decisions already made by the human — transcribe, do not reinterpret
 
-1. **One base `Pressable`, with five specialised components composing it** by fixing props. Use
-   composition — a wrapper that renders `<Pressable feedback="..." />`. **Not** class inheritance:
-   function components only, and hooks do not work in classes.
-2. **Feedback is a closed vocabulary**: `'scale' | 'overlay' | 'opacity' | 'none'`.
-3. **Haptics default to `none`** and are opted into explicitly at the call site. Policy is
-   consequential actions only — state changes, not ordinary navigation. Do not bake haptics into
-   the card or row variants.
-4. **Scale depth is undecided on purpose.** The gallery must expose live controls so it can be
-   judged by thumb, not by description.
+1. **Wide banner cards**, not portrait book covers. This app is a short-form content viewer
+   (~5 minute reads), not a book reader; a 2:3 portrait cover would signal "book" and mislead.
+2. **The title sits below the cover**, set in UI type (system font) — not inside the generated art.
+   The generated art stays purely abstract.
+3. **Delete is a long-press action**, invisible until wanted.
+4. **Single column feed**, decided from geometry: at phone width, two wide cards per row leaves each
+   about 160pt, too narrow for a banner to be worth generating.
 
-## 1. `ui/primitives/Pressable.tsx` — the base
+## 1. `features/library/GeneratedCover.tsx`
 
-```ts
-type PressableProps = {
-  onPress?: () => void;
-  onLongPress?: () => void;
-  feedback?: 'scale' | 'overlay' | 'opacity' | 'none';   // default 'opacity'
-  haptic?: 'none' | 'selection' | 'light' | 'success' | 'error';  // default 'none'
-  hitSlop?: number;
-  disabled?: boolean;
-  flex?: boolean;
-  accessibilityRole?: 'button' | 'link';
-  accessibilityLabel?: string;
-  accessibilityHint?: string;
-  children: React.ReactNode;
-  testID?: string;
-};
-```
+A deterministic abstract banner derived from the book, used in place of cover art.
 
-Behaviour requirements:
+- Input: the book `id` or `title`. Same input must always produce the same cover — write a small
+  stable string hash; do not use `Math.random`.
+- Aspect ratio: wide. Start at **16:9** and expose it as a constant so it is easy to retune.
+- **Constrain the palette.** Derive hue from the hash but restrict it to an arc around the app's
+  own family — roughly teal through forest through slate — and vary lightness and saturation more
+  than hue. Free-range hashing produces covers in colours unrelated to the design system, and a
+  library of those reads as a bug rather than a feature. Build the ramp from the existing colour
+  primitives where possible; if a generated colour is genuinely needed, compute it in
+  `features/`, never in `design/`.
+- Keep the composition quiet: a soft gradient, or a few large geometric shapes. No noise, no
+  photographic texture. It sits under a title and must never compete with it.
+- Must work in both themes. On the dark theme it should sit comfortably against the dark ground —
+  test it, do not assume.
+- Props: `seed: string`, `radius?`, `testID?`.
 
-- **Feedback begins on press-in, not on release.** Waiting for release is the single most common
-  cause of an interface feeling laggy. Use `onPressIn` / `onPressOut`.
-- Animate with **`react-native-reanimated` v4 worklets** and the spring configs in
-  `design/tokens/motion`. Never `Animated` from `react-native`. Springs are the vocabulary here;
-  durations are only for opacity.
-- `scale` animates a shared value with `withSpring`. `opacity` animates opacity. `overlay` shows an
-  absolutely-positioned fill in `theme.state.pressOverlay` that fades in. `none` renders no visual
-  change at all but still handles the press.
-- **Respect reduced motion.** Read the OS setting (Reanimated's `useReducedMotion` or
-  `AccessibilityInfo`) and degrade `scale` to a plain opacity change when it is on. Motion
-  sensitivity is a real accessibility need, not a preference.
-- `haptic` maps to `expo-haptics`: `selection` → `selectionAsync`, `light` →
-  `impactAsync(Light)`, `success` / `error` → `notificationAsync`. Fire on press-in for
-  `selection` / `light`; `success` / `error` are for callers to trigger on outcomes.
-- `disabled` prevents presses, suppresses haptics, and reduces opacity. Set
-  `accessibilityState={{ disabled }}`.
-- Default `accessibilityRole` to `'button'`.
-- No `style` prop, no `...rest` spread.
+## 2. `features/library/BookCard.tsx`
 
-## 2. The five derived components
+- Composition: a `PressableCard` wrapping a `VStack` — `GeneratedCover` on top, then the title,
+  then a metadata line.
+- Title: `Text variant="body"` or `"title3"`, `weight="semibold"`, `numberOfLines={2}`.
+  Real titles run past 80 characters (*"Laugh Tactics: Master Conversational Humor and Be Funny On
+  Command"*), so two lines with truncation is the realistic case, not the edge case.
+- Metadata: chapter count and page count, `Text variant="footnote" tone="secondary"`.
+  **Use `secondary`, not `tertiary`** — tertiary is now reserved for disabled and decorative use
+  only, because at roughly 2.8:1 on paper it is below the readable threshold.
+- The card sets `radius` on the `PressableCard` itself, not on an inner `Surface` — whatever paints
+  the press overlay owns the shape.
+- `onPress` opens the book. `onLongPress` triggers delete (section 4).
 
-Each is a thin wrapper that fixes props on the base. Each in its own file under `ui/primitives/`.
+## 3. `features/library/LibraryFeed.tsx`
 
-| Component | Fixes | Notes |
-|---|---|---|
-| `PressableCard` | `feedback="scale"` | For self-contained tiles with their own surface. |
-| `PressableRow` | `feedback="overlay"` | Full-bleed list rows. Overlay must cover the full row width. |
-| `IconButton` | `feedback="opacity"`, `hitSlop` sized so the target reaches **44×44pt** | Apple's minimum touch target. The icon is visually smaller; the slop is what makes it usable. |
-| `TextLink` | `feedback="opacity"`, `accessibilityRole="link"` | Renders `Text` with `tone="accent"`. Accepts `variant` and `weight` and forwards them. |
-| `TapRegion` | `feedback="none"` | Invisible tap areas — reader centre-tap, sheet backdrop. No visual response by design. |
+- A `FlatList` of `BookCard`s, single column, with `contentContainerStyle` padding from space tokens.
+- Vertical rhythm between cards comes from the list's gap/separator using space tokens — no margins
+  on the cards themselves.
+- `ImportTile` renders as the **first** item, above the books, so the primary action is in the
+  content flow rather than floating over it.
+- Empty state: for now a simple centred `Text` explaining the library is empty. `EmptyState` is its
+  own later pass — do not design it here, and do not build a reusable component for it yet.
 
-Do **not** duplicate press logic into any of them. Every one renders the base.
+## 4. `features/library/ImportTile.tsx` and delete
 
-## 3. Export from `ui/index.ts`
+**ImportTile** — a `PressableCard` in the same width as a book card but shorter, reading clearly as
+an action rather than content. It has two states:
 
-All six plus their prop types.
+- Idle: an add affordance plus a short label.
+- Importing: the current stage text and percentage from the existing `parsePdf` progress callback,
+  as plain `Text`. Keep this minimal — `ImportProgressCard` (#20) designs the real progress
+  experience later, including skeletons. Do not build shimmer or skeletons now.
 
-## 4. Gallery — make press feel tunable
+**Delete** — on long-press of a `BookCard`, show a native `Alert.alert` with a `destructive`
+"Delete" option and a "Cancel". This is deliberate: it is the platform's destructive-confirmation
+pattern, needs no new component, and correctly requires confirmation for an irreversible action. A
+custom context menu can replace it later if it is ever wanted. Fire `haptic` on the long-press —
+deleting is a consequential action, which is exactly the policy for when haptics are allowed.
 
-Add a Pressable section with **live controls**, because press feel cannot be judged from a static
-render:
+On confirm, call the existing `removeBook` from `storage/` and refresh the list.
 
-- A slider or chip row for **scale target**, offering at least `0.99`, `0.97`, `0.95`, `0.92`.
-- A chip row for **spring config**: `gentle`, `default`, `snappy` from the motion tokens.
-- A large `PressableCard` bound to those two controls, so the values can be thumbed directly.
-- One live example of each of the five variants, each clearly labelled, all actually pressable:
-  a card, a full-width row, an icon button, a text link, and a tap region that toggles something
-  visible so it is obviously working despite showing no feedback.
-- A disabled example.
-- One example with `haptic="selection"` so the haptic can be felt.
+## 5. Rewrite `app/index.tsx`
 
-Wire the scale and spring controls through props on the base `Pressable` for the demo only — do
-not hardcode the chosen value yet. The human picks it after handling it, and it gets written into
-the tokens in a follow-up.
+Replace the skeleton library screen with `LibraryFeed`. Remove the ugly Delete button, the
+diagnostic `Status:` / `Source:` lines, and the plain import button — all superseded.
+
+Keep the link to `/_dev/gallery`, but make it small and unobtrusive; it is a development affordance.
+
+Keep the existing import flow logic exactly as it is, including the rejection of `no-text-layer`
+and `failed` books with an error message. Only its presentation changes.
+
+## 6. Extend the gallery
+
+Add a Library section showing:
+
+- Eight `GeneratedCover`s in a row or grid, seeded from the real book titles plus synthetic long and
+  short ones, so the generator can be judged for variety and coherence across arbitrary input.
+- A `BookCard` with a very long title and one with a short title, side by side, so truncation
+  behaviour is visible.
+- The `ImportTile` in both idle and importing states.
 
 ## Explicitly not in this phase
 
-- No `Button` component — that is a later pass and depends on this one.
+- No `EmptyState`, `Skeleton`, `Progress` or `Toast` components.
+- Do not design the import progress experience beyond plain text.
+- Do not touch the contents screen or the reader.
 - Do not decide `Divider`'s inset or weight.
-- Do not restyle `app/index.tsx`, the contents screen or the reader. The ugly Delete button stays
-  as it is; its real design is decided at the `BookCard` pass.
 - Do not change any decided token value.
 
 ## Done means
 
-`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, including the `ui/` hex and import
-guards. The three real screens are unchanged. Every variant in the gallery responds to touch.
+`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, including the `ui/` guards. The
+Library screen renders real cards with generated covers, importing still works, and long-press
+deletes after confirmation.
 
 ## Reminders
 
@@ -120,50 +124,48 @@ guards. The three real screens are unchanged. Every variant in the gallery respo
 
 # Fixes — round 1
 
-Two changes: bake in the press feel the human chose by hand, and fix the overlay shape bug.
+The library screen is right. One real defect and one guard gap.
 
-## 1. Press feel is decided — bake it into the tokens and close the escape hatch
+## 1. `GeneratedCover` infers the theme by comparing a hex literal
 
-Chosen by thumb on device: **scale target `0.99`** with the **`default`** spring.
+`features/library/GeneratedCover.tsx:38`:
 
-- Add a `press` entry to `design/tokens/motion.ts` holding both values together, e.g.
-  `press: { scale: 0.99, spring: springs.default }`. They are one decision, not two, so keep them
-  in a single token rather than as separate values that could drift apart.
-- `Pressable` reads that token directly.
-- **Remove the `scaleTarget` and `springConfig` props** from `Pressable` entirely, and remove the
-  live tuning controls and their state from the gallery. They were temporary instruments for making
-  this decision. Leaving them public would reopen exactly the escape hatch that the closed `tone`
-  and `gap` vocabularies exist to prevent — any call site could then invent its own press feel and
-  the system would stop being true.
-- The gallery keeps every variant example; it just demonstrates the settled feel instead of
-  offering knobs.
+```ts
+const isDark = theme.surface.page !== '#F7F8FA';
+```
 
-## 2. The press overlay ignores the corner radius
+Two problems. It hardcodes the light paper colour inside a component, so changing that token would
+silently flip every cover to its dark treatment. And it infers theme identity rather than being
+told, which is the pattern the `Surface` pass deliberately avoided.
 
-`PressableRow`'s overlay renders as a hard rectangle behind a rounded child, so the highlight
-visibly overhangs the corners.
+Note this is **not** a case of "the token should carry the difference". `GeneratedCover` computes
+colours procedurally from a hash, so it genuinely needs to know which scheme it is in — a lightness
+band cannot be expressed as a single colour token. The fix is to make the theme state it explicitly.
 
-**Cause:** `Surface` owns `borderRadius`, but `Pressable` renders the overlay as an
-`absoluteFillObject` inside its own container — and that container has no radius, so its
-`overflow: 'hidden'` has nothing to clip against.
+- Add `scheme: 'light' | 'dark'` to the `Theme` type in `design/themes.ts`, set to `'light'` on
+  `lightTheme` and `'dark'` on `darkTheme`. It is a plain string, so it does not violate the
+  no-hex-literals rule.
+- Replace the inference in `GeneratedCover` with `theme.scheme === 'dark'`.
+- No other component may use `theme.scheme` to pick a colour — colours still come from semantic
+  tokens. This exists solely for procedural generation. Add a short comment on the `scheme` field
+  saying exactly that, so it is not treated as a general licence to branch.
 
-**The rule:** whatever paints the press overlay must own the shape.
+## 2. The colour guard does not cover `features/`
 
-- Add `radius?: 'none' | 'sm' | 'md' | 'lg' | 'pill'` to `Pressable`, defaulting to `'none'`, using
-  the same radius tokens and the same closed vocabulary as `Surface`.
-- Apply `borderRadius` to the pressable container, and set `overflow: 'hidden'` whenever the radius
-  is not `'none'` **or** the feedback is `'overlay'`. The overlay is then clipped to the silhouette.
-- Forward `radius` through `PressableCard`, `PressableRow`, `IconButton` and `TapRegion`.
-- Update the gallery's row and card examples to set `radius` on the pressable, and drop the radius
-  from the inner `Surface` in those examples — the parent's clip now defines the shape for both.
-  Add a short comment at that call site recording why, so the pattern is not undone later.
+The existing test asserts no hex literals under `ui/`, but `features/` is equally forbidden from
+hardcoding colours and is where the violation above appeared.
+
+- Extend the guard so it checks **both** `ui/` and `features/`.
+- Keep allowing `transparent`; nothing else.
+- Verify by reasoning that the test would have caught the `#F7F8FA` above.
 
 ## Not in scope
 
-- Do not change any other token value or component.
-- Do not restyle the three real screens.
+- Do not change the cover generator's hue arc, layouts or lightness ranges — those are for the
+  human to judge on device.
+- Do not change any other component.
 
 ## Done means
 
-`npx tsc --noEmit`, `npm run lint` and `node --test` all pass. `scaleTarget` and `springConfig` no
-longer exist anywhere in the codebase. The row overlay is clipped to its rounded corners.
+`npx tsc --noEmit`, `npm run lint` and `node --test` all pass, with the extended guard covering
+`features/`. No hex literal exists anywhere under `ui/` or `features/`.

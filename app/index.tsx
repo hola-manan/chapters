@@ -1,23 +1,20 @@
 import * as DocumentPicker from 'expo-document-picker';
+import * as Haptics from 'expo-haptics';
 import { Link, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
-import { parsePdf } from '../pdf/index.ts';
-import type { Book } from '../pdf/types.ts';
-import { addBook, listBooks, removeBook } from '../storage/index.ts';
+import { Alert, StyleSheet, View } from 'react-native';
+import { radius, space } from '../design';
+import { LibraryFeed } from '../features';
+import { parsePdf } from '../pdf';
+import type { Book } from '../pdf/types';
+import { addBook, listBooks, removeBook } from '../storage';
+import { Text, useTheme, VStack } from '../ui';
 
 export default function LibraryScreen() {
   const router = useRouter();
+  const theme = useTheme();
   const [books, setBooks] = useState<Book[]>([]);
   const [isParsing, setIsParsing] = useState(false);
-  const [parsingTitle, setParsingTitle] = useState('');
   const [progressStage, setProgressStage] = useState('');
   const [progressPct, setProgressPct] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
@@ -45,7 +42,6 @@ export default function LibraryScreen() {
 
       const asset = res.assets[0];
       setIsParsing(true);
-      setParsingTitle(asset.name || 'PDF Document');
       setProgressStage('reading');
       setProgressPct(0);
 
@@ -79,99 +75,83 @@ export default function LibraryScreen() {
     }
   };
 
-  const handleRemove = async (id: string) => {
-    await removeBook(id);
-    await loadLibrary();
+  const handleDeleteBook = (book: Book) => {
+    try {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {
+      // Haptics unavailable on platform
+    }
+
+    Alert.alert(
+      `Delete “${book.title}”?`,
+      'This book will be removed from your library.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await removeBook(book.id);
+            await loadLibrary();
+          },
+        },
+      ]
+    );
   };
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.header}>Library</Text>
-
-      <Pressable style={styles.importButton} onPress={handlePickDocument} disabled={isParsing}>
-        <Text style={styles.importButtonText}>
-          {isParsing ? 'Importing PDF...' : 'Import a PDF'}
+  const header = (
+    <VStack gap="xs">
+      <View style={styles.headerRow}>
+        <Text variant="title1" weight="semibold" flex>
+          Library
         </Text>
-      </Pressable>
-
-      <Link href="/_dev/gallery" style={styles.galleryLink}>
-        <Text>Open Dev Component Gallery</Text>
-      </Link>
-
-      {isParsing && (
-        <View style={styles.parsingBox}>
-          <ActivityIndicator size="small" />
-          <Text style={styles.parsingTitle}>{parsingTitle}</Text>
-          <Text style={styles.parsingProgress}>
-            Stage: {progressStage} ({progressPct}%)
+        <Link href="/_dev/gallery">
+          <Text variant="caption" tone="tertiary">
+            Dev Gallery
+          </Text>
+        </Link>
+      </View>
+      {errorMessage ? (
+        <View style={[styles.errorBox, { borderColor: theme.border.strong }]}>
+          <Text variant="footnote" tone="secondary">
+            {errorMessage}
           </Text>
         </View>
-      )}
+      ) : null}
+    </VStack>
+  );
 
-      {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-
-      <FlatList
-        data={books}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={!isParsing ? <Text>No books added yet.</Text> : null}
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <Pressable style={styles.cardInfo} onPress={() => router.push(`/book/${item.id}`)}>
-              <Text style={styles.bookTitle}>{item.title}</Text>
-              <Text style={styles.metaText}>
-                {item.pageCount} pages | Status: {item.status}
-              </Text>
-              {item.status === 'failed' && item.error ? (
-                <Text style={styles.metaText}>Error: {item.error}</Text>
-              ) : null}
-              <Text style={styles.metaText}>
-                Source: {item.chapterSource} | Chapters: {item.chapters.length}
-              </Text>
-            </Pressable>
-            <Pressable style={styles.deleteButton} onPress={() => handleRemove(item.id)}>
-              <Text style={styles.deleteText}>Delete</Text>
-            </Pressable>
-          </View>
-        )}
+  return (
+    <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
+      <LibraryFeed
+        books={books}
+        onSelectBook={(book) => router.push(`/book/${book.id}`)}
+        onDeleteBook={handleDeleteBook}
+        onImportPress={handlePickDocument}
+        isImporting={isParsing}
+        importStage={progressStage}
+        importPct={progressPct}
+        headerComponent={header}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#fff' },
-  header: { fontSize: 24, fontWeight: 'bold', marginBottom: 12 },
-  importButton: {
-    padding: 12,
-    backgroundColor: '#e0e0e0',
-    alignItems: 'center',
-    marginBottom: 8,
+  container: {
+    flex: 1,
   },
-  importButtonText: { fontSize: 16, fontWeight: '600' },
-  galleryLink: { marginBottom: 16, color: 'blue' },
-  parsingBox: {
-    padding: 12,
-    backgroundColor: '#f5f5f5',
-    marginVertical: 8,
-    alignItems: 'center',
-    gap: 4,
-  },
-  parsingTitle: { fontWeight: 'bold', fontSize: 14 },
-  parsingProgress: { fontSize: 12, color: '#555' },
-  errorText: { color: 'red', marginVertical: 8 },
-  list: { gap: 12, paddingTop: 8 },
-  card: {
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#ccc',
+  headerRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'baseline',
     justifyContent: 'space-between',
+    paddingTop: space.xl,
+    paddingBottom: space.xs,
   },
-  cardInfo: { flex: 1, gap: 2 },
-  bookTitle: { fontSize: 16, fontWeight: 'bold' },
-  metaText: { fontSize: 12, color: '#666' },
-  deleteButton: { padding: 8, backgroundColor: '#ffd1d1' },
-  deleteText: { color: 'red', fontSize: 12 },
+  errorBox: {
+    padding: space.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    marginTop: space.xs,
+  },
 });
