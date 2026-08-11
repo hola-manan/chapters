@@ -17,6 +17,8 @@ import {
   IconButton,
   PressableCard,
   PressableRow,
+  ReadingInitial,
+  ReadingLead,
   ReadingText,
   Surface,
   TapRegion,
@@ -716,78 +718,41 @@ function GalleryContent({
         {/* Section 12: Reading Surface */}
         <Section title="Reading Surface" borderBottomColor={theme.border.subtle}>
           <VStack gap="xxl">
-            {/* 1. All four ChapterOpening treatments stacked */}
+            {/* 1. The settled chapter opening */}
             <VStack gap="xl">
               <Text variant="caption" tone="tertiary" weight="semibold">
-                1. CHAPTER OPENING TREATMENTS (32PT MEASURE)
+                1. CHAPTER OPENING (32PT MEASURE)
               </Text>
 
-              {/* Eyebrow Treatment */}
               <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
-                <Text variant="caption" tone="tertiary" weight="semibold">
-                  TREATMENT: EYEBROW
-                </Text>
-                <View style={{ marginTop: space.sm }}>
-                  <ChapterOpening
-                    title="The Elements of Typographic Style"
-                    chapterNumber={1}
-                    chapterCount={12}
-                    treatment="eyebrow"
-                  />
-                  <ParagraphBlock text={bodyParagraphs[0]} />
-                  <ParagraphBlock text={bodyParagraphs[1]} />
-                </View>
+                <ChapterOpening
+                  title="The Elements of Typographic Style"
+                  chapterNumber={1}
+                  chapterCount={12}
+                />
+                <ParagraphBlock text={bodyParagraphs[0]} />
+                <ParagraphBlock text={bodyParagraphs[1]} />
               </View>
+            </VStack>
 
-              {/* Plain Treatment */}
+            {/* 1b. Unused reading accents, kept as tier-2 library specimens */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                1b. READING ACCENTS (NOT USED IN THE READER)
+              </Text>
               <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
-                <Text variant="caption" tone="tertiary" weight="semibold">
-                  TREATMENT: PLAIN
-                </Text>
-                <View style={{ marginTop: space.sm }}>
-                  <ChapterOpening
-                    title="The Elements of Typographic Style"
-                    chapterNumber={1}
-                    chapterCount={12}
-                    treatment="plain"
-                  />
-                  <ParagraphBlock text={bodyParagraphs[0]} />
-                  <ParagraphBlock text={bodyParagraphs[1]} />
+                <View style={{ flexDirection: 'row', marginBottom: space.lg }}>
+                  <View style={{ marginRight: space.sm }}>
+                    <ReadingInitial>{bodyParagraphs[0].charAt(0)}</ReadingInitial>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <ReadingText>{bodyParagraphs[0].slice(1)}</ReadingText>
+                  </View>
                 </View>
-              </View>
-
-              {/* Initial Treatment */}
-              <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
-                <Text variant="caption" tone="tertiary" weight="semibold">
-                  TREATMENT: INITIAL (RAISED INITIAL)
-                </Text>
-                <View style={{ marginTop: space.sm }}>
-                  <ChapterOpening
-                    title="The Elements of Typographic Style"
-                    chapterNumber={1}
-                    chapterCount={12}
-                    treatment="initial"
-                    firstParagraph={bodyParagraphs[0]}
-                  />
-                  <ParagraphBlock text={bodyParagraphs[1]} />
-                </View>
-              </View>
-
-              {/* Smallcaps Treatment */}
-              <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
-                <Text variant="caption" tone="tertiary" weight="semibold">
-                  TREATMENT: SMALLCAPS (FAUX SMALL CAPS)
-                </Text>
-                <View style={{ marginTop: space.sm }}>
-                  <ChapterOpening
-                    title="The Elements of Typographic Style"
-                    chapterNumber={1}
-                    chapterCount={12}
-                    treatment="smallcaps"
-                    firstParagraph={bodyParagraphs[0]}
-                  />
-                  <ParagraphBlock text={bodyParagraphs[1]} />
-                </View>
+                <ReadingText>
+                  <ReadingLead>{bodyParagraphs[1].split(/\s+/).slice(0, 4).join(' ')}</ReadingLead>
+                  {' ' + bodyParagraphs[1].split(/\s+/).slice(4).join(' ')}
+                </ReadingText>
               </View>
             </VStack>
 

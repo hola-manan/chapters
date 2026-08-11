@@ -10,9 +10,9 @@ import {
   View,
 } from 'react-native';
 import { radius, space } from '../../../design';
-import { ChapterOpening, HeadingBlock, OpeningPicker, OpeningTreatment, ParagraphBlock } from '../../../features';
+import { ChapterOpening, HeadingBlock, ParagraphBlock } from '../../../features';
 import { displayTitle } from '../../../pdf';
-import type { Block, Book, Chapter } from '../../../pdf/types';
+import type { Book, Chapter } from '../../../pdf/types';
 import { getBook, getReadingPosition, saveReadingPosition } from '../../../storage';
 import { Text, useTheme } from '../../../ui';
 
@@ -25,7 +25,6 @@ export default function ReaderScreen() {
   const [book, setBook] = useState<Book | null>(null);
   const [chapter, setChapter] = useState<Chapter | null>(null);
   const [initialIndex, setInitialIndex] = useState<number | null>(null);
-  const [treatment, setTreatment] = useState<OpeningTreatment>('eyebrow');
 
   const maxProgressRef = useRef<number>(0);
   const maxBlockIndexRef = useRef<number>(0);
@@ -131,23 +130,7 @@ export default function ReaderScreen() {
     }
   };
 
-  const rawBlocks = chapter.blocks.filter((b) => b.type !== 'pagebreak');
-  const firstParagraphBlock = rawBlocks.find(
-    (b): b is Extract<Block, { type: 'paragraph' }> => b.type === 'paragraph'
-  );
-  const firstParagraphText = firstParagraphBlock?.text;
-
-  let displayBlocks = rawBlocks;
-  if ((treatment === 'initial' || treatment === 'smallcaps') && firstParagraphBlock) {
-    let dropped = false;
-    displayBlocks = rawBlocks.filter((b) => {
-      if (!dropped && b === firstParagraphBlock) {
-        dropped = true;
-        return false;
-      }
-      return true;
-    });
-  }
+  const displayBlocks = chapter.blocks.filter((b) => b.type !== 'pagebreak');
 
   return (
     <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
@@ -158,13 +141,10 @@ export default function ReaderScreen() {
         contentContainerStyle={styles.listContainer}
         ListHeaderComponent={
           <View style={styles.headerContainer}>
-            <OpeningPicker treatment={treatment} onChangeTreatment={setTreatment} />
             <ChapterOpening
               title={displayTitle(chapter.title)}
               chapterNumber={currentChapterIdx + 1}
               chapterCount={book.chapters.length}
-              treatment={treatment}
-              firstParagraph={firstParagraphText}
             />
           </View>
         }
