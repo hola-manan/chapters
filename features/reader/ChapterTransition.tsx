@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import React, { useImperativeHandle, useLayoutEffect } from 'react';
+import React, { useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -50,10 +50,29 @@ export const ChapterTransition = React.forwardRef<
 ) {
   const { width: screenWidth } = useWindowDimensions();
   const translateX = useSharedValue(0);
+  const startX = useSharedValue(0);
+
+  // Where the incoming chapter already sits on screen at the moment of the swap, so the spring
+  // can pick it up from there. Deliberately a JS ref rather than a shared value: the gesture
+  // writes it from the UI thread and this effect reads it from JS, and Reanimated mirrors shared
+  // values across threads asynchronously — a shared value could still read 0 here and drop the
+  // chapter into place with no movement at all.
+  const pendingOffsetRef = useRef(0);
 
   useLayoutEffect(() => {
-    translateX.value = 0;
+    // Runs after the new chapter has rendered but before the frame is presented, so the jump to
+    // the incoming chapter's existing position is never visible — only the travel home is.
+    translateX.value = pendingOffsetRef.current;
+    translateX.value = withSpring(0, springs.default);
+    pendingOffsetRef.current = 0;
   }, [chapterKey, translateX]);
+
+  // Called on the JS thread from the gesture, so the offset is stored before onNext/onPrev
+  // triggers the re-render that runs the effect above.
+  const commit = (offset: number, move: () => void) => {
+    pendingOffsetRef.current = offset;
+    move();
+  };
 
   const isIgnored = useSharedValue(false);
   const hasFiredBoundaryHaptic = useSharedValue(false);
@@ -78,24 +97,18 @@ export const ChapterTransition = React.forwardRef<
     ref,
     () => ({
       advance(direction: 'prev' | 'next') {
+        // At rest the drag offset is zero, so the incoming chapter sits exactly one screen away.
         if (direction === 'next' && hasNext) {
           triggerSelectionHaptic();
-          translateX.value = withSpring(-screenWidth, springs.default, (finished) => {
-            if (finished) {
-              runOnJS(onNext)();
-            }
-          });
+          commit(screenWidth, onNext);
         } else if (direction === 'prev' && hasPrev) {
           triggerSelectionHaptic();
-          translateX.value = withSpring(screenWidth, springs.default, (finished) => {
-            if (finished) {
-              runOnJS(onPrev)();
-            }
-          });
+          commit(-screenWidth, onPrev);
         }
       },
     }),
-    [hasNext, hasPrev, onNext, onPrev, screenWidth, translateX]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hasNext, hasPrev, onNext, onPrev, screenWidth]
   );
 
   const commitThreshold = screenWidth * 0.25;
@@ -113,6 +126,7 @@ export const ChapterTransition = React.forwardRef<
       }
       isIgnored.value = false;
       hasFiredBoundaryHaptic.value = false;
+      startX.value = translateX.value;
     })
     .onUpdate((event) => {
       if (isIgnored.value) return;
@@ -121,13 +135,13 @@ export const ChapterTransition = React.forwardRef<
       const isBoundary = (tx > 0 && !hasPrev) || (tx < 0 && !hasNext);
 
       if (isBoundary) {
-        translateX.value = tx * 0.25;
+        translateX.value = startX.value + tx * 0.25;
         if (Math.abs(tx) >= commitThreshold && !hasFiredBoundaryHaptic.value) {
           hasFiredBoundaryHaptic.value = true;
           runOnJS(triggerBoundaryHaptic)();
         }
       } else {
-        translateX.value = tx;
+        translateX.value = startX.value + tx;
       }
     })
     .onEnd((event) => {
@@ -139,18 +153,12 @@ export const ChapterTransition = React.forwardRef<
       const tx = event.translationX;
       if (tx > commitThreshold && hasPrev) {
         runOnJS(triggerSelectionHaptic)();
-        translateX.value = withSpring(screenWidth, springs.default, (finished) => {
-          if (finished) {
-            runOnJS(onPrev)();
-          }
-        });
+        // The chapter swaps now; the spring afterwards carries content that is already correct,
+        // so a second swipe has something to grab immediately instead of waiting out the tail.
+        runOnJS(commit)(tx - screenWidth, onPrev);
       } else if (tx < -commitThreshold && hasNext) {
         runOnJS(triggerSelectionHaptic)();
-        translateX.value = withSpring(-screenWidth, springs.default, (finished) => {
-          if (finished) {
-            runOnJS(onNext)();
-          }
-        });
+        runOnJS(commit)(tx + screenWidth, onNext);
       } else {
         translateX.value = withSpring(0, springs.default);
       }
