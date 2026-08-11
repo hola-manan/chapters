@@ -7,20 +7,25 @@ import {
   NativeSyntheticEvent,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
-import type { Book, Chapter } from '../../../pdf/types.ts';
-import { getBook, getReadingPosition, saveReadingPosition } from '../../../storage/index.ts';
+import { radius, space } from '../../../design';
+import { ChapterOpening, HeadingBlock, OpeningPicker, OpeningTreatment, ParagraphBlock } from '../../../features';
+import { displayTitle } from '../../../pdf';
+import type { Block, Book, Chapter } from '../../../pdf/types';
+import { getBook, getReadingPosition, saveReadingPosition } from '../../../storage';
+import { Text, useTheme } from '../../../ui';
 
 export default function ReaderScreen() {
   const { id, chapter: chapterId } = useLocalSearchParams<{ id: string; chapter: string }>();
   const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
+  const theme = useTheme();
 
   const [book, setBook] = useState<Book | null>(null);
   const [chapter, setChapter] = useState<Chapter | null>(null);
   const [initialIndex, setInitialIndex] = useState<number | null>(null);
+  const [treatment, setTreatment] = useState<OpeningTreatment>('eyebrow');
 
   const maxProgressRef = useRef<number>(0);
   const maxBlockIndexRef = useRef<number>(0);
@@ -66,8 +71,10 @@ export default function ReaderScreen() {
 
   if (!book || !chapter) {
     return (
-      <View style={styles.container}>
-        <Text>Loading chapter...</Text>
+      <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
+        <View style={styles.emptyContainer}>
+          <Text tone="secondary">Loading chapter...</Text>
+        </View>
       </View>
     );
   }
@@ -124,64 +131,87 @@ export default function ReaderScreen() {
     }
   };
 
-  const displayBlocks = chapter.blocks.filter((b) => b.type !== 'pagebreak');
+  const rawBlocks = chapter.blocks.filter((b) => b.type !== 'pagebreak');
+  const firstParagraphBlock = rawBlocks.find(
+    (b): b is Extract<Block, { type: 'paragraph' }> => b.type === 'paragraph'
+  );
+  const firstParagraphText = firstParagraphBlock?.text;
+
+  let displayBlocks = rawBlocks;
+  if ((treatment === 'initial' || treatment === 'smallcaps') && firstParagraphBlock) {
+    let dropped = false;
+    displayBlocks = rawBlocks.filter((b) => {
+      if (!dropped && b === firstParagraphBlock) {
+        dropped = true;
+        return false;
+      }
+      return true;
+    });
+  }
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.header}>{chapter.title}</Text>
-
-      {displayBlocks.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>
-            {book.status === 'no-text-layer'
-              ? 'No extractable text in this chapter (scanned document).'
-              : 'No text blocks found in this chapter.'}
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          ref={flatListRef}
-          data={displayBlocks}
-          keyExtractor={(_, index) => `block_${index}`}
-          contentContainerStyle={styles.list}
-          initialScrollIndex={
-            initialIndex && initialIndex < displayBlocks.length ? initialIndex : undefined
+    <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
+      <FlatList
+        ref={flatListRef}
+        data={displayBlocks}
+        keyExtractor={(_, index) => `block_${index}`}
+        contentContainerStyle={styles.listContainer}
+        ListHeaderComponent={
+          <View style={styles.headerContainer}>
+            <OpeningPicker treatment={treatment} onChangeTreatment={setTreatment} />
+            <ChapterOpening
+              title={displayTitle(chapter.title)}
+              chapterNumber={currentChapterIdx + 1}
+              chapterCount={book.chapters.length}
+              treatment={treatment}
+              firstParagraph={firstParagraphText}
+            />
+          </View>
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text tone="secondary" align="center">
+              {book.status === 'no-text-layer'
+                ? 'No extractable text in this chapter (scanned document).'
+                : 'No text blocks found in this chapter.'}
+            </Text>
+          </View>
+        }
+        initialScrollIndex={
+          initialIndex && initialIndex < displayBlocks.length ? initialIndex : undefined
+        }
+        onScroll={handleScroll}
+        onScrollEndDrag={handleScroll}
+        onMomentumScrollEnd={handleScroll}
+        onContentSizeChange={handleContentSizeChange}
+        onLayout={handleLayout}
+        scrollEventThrottle={500}
+        onScrollToIndexFailed={(info) => {
+          flatListRef.current?.scrollToOffset({
+            offset: info.averageItemLength * info.index,
+            animated: false,
+          });
+        }}
+        renderItem={({ item }) => {
+          if (item.type === 'heading') {
+            return <HeadingBlock text={item.text} level={item.level} />;
           }
-          onScroll={handleScroll}
-          onScrollEndDrag={handleScroll}
-          onMomentumScrollEnd={handleScroll}
-          onContentSizeChange={handleContentSizeChange}
-          onLayout={handleLayout}
-          scrollEventThrottle={500}
-          onScrollToIndexFailed={(info) => {
-            flatListRef.current?.scrollToOffset({
-              offset: info.averageItemLength * info.index,
-              animated: false,
-            });
-          }}
-          renderItem={({ item }) => {
-            if (item.type === 'heading') {
-              return (
-                <Text style={item.level === 1 ? styles.heading1 : styles.heading2}>
-                  {item.text}
-                </Text>
-              );
-            }
-            if (item.type === 'paragraph') {
-              return <Text style={styles.paragraph}>{item.text}</Text>;
-            }
-            return null;
-          }}
-        />
-      )}
+          if (item.type === 'paragraph') {
+            return <ParagraphBlock text={item.text} />;
+          }
+          return null;
+        }}
+      />
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { borderTopColor: theme.border.subtle }]}>
         {prevChapter ? (
           <Pressable
-            style={styles.navButton}
+            style={[styles.navButton, { backgroundColor: theme.surface.sunken }]}
             onPress={() => router.replace(`/book/${book.id}/${prevChapter.id}`)}
           >
-            <Text style={styles.navText}>← Previous</Text>
+            <Text variant="footnote" weight="medium" tone="primary">
+              ← Previous
+            </Text>
           </Pressable>
         ) : (
           <View style={styles.placeholder} />
@@ -189,10 +219,12 @@ export default function ReaderScreen() {
 
         {nextChapter ? (
           <Pressable
-            style={styles.navButton}
+            style={[styles.navButton, { backgroundColor: theme.surface.sunken }]}
             onPress={() => router.replace(`/book/${book.id}/${nextChapter.id}`)}
           >
-            <Text style={styles.navText}>Next →</Text>
+            <Text variant="footnote" weight="medium" tone="primary">
+              Next →
+            </Text>
           </Pressable>
         ) : (
           <View style={styles.placeholder} />
@@ -203,22 +235,31 @@ export default function ReaderScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff', paddingHorizontal: 16, paddingTop: 16 },
-  header: { fontSize: 18, fontWeight: 'bold', marginBottom: 12 },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  emptyText: { color: '#666', textAlign: 'center' },
-  list: { gap: 12, paddingBottom: 24 },
-  heading1: { fontSize: 22, fontWeight: 'bold', marginVertical: 8 },
-  heading2: { fontSize: 18, fontWeight: '600', marginVertical: 6 },
-  paragraph: { fontSize: 16, lineHeight: 24, color: '#222' },
+  container: { flex: 1 },
+  listContainer: {
+    paddingHorizontal: space.xxl,
+    paddingTop: space.xl,
+    paddingBottom: space.xxl,
+  },
+  headerContainer: {
+    marginBottom: space.lg,
+  },
+  emptyContainer: {
+    paddingVertical: space.xxl,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingHorizontal: space.xxl,
+    paddingVertical: space.md,
     borderTopWidth: 1,
-    borderColor: '#eee',
   },
-  navButton: { padding: 10, backgroundColor: '#f0f0f0' },
-  navText: { fontSize: 14, fontWeight: '500' },
+  navButton: {
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
+    borderRadius: radius.md,
+  },
   placeholder: { width: 80 },
 });

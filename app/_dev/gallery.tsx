@@ -2,7 +2,14 @@ import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { radius, space } from '../../design/index.ts';
-import { BookCard, GeneratedCover, ImportTile } from '../../features/index.ts';
+import {
+  BookCard,
+  ChapterOpening,
+  GeneratedCover,
+  HeadingBlock,
+  ImportTile,
+  ParagraphBlock,
+} from '../../features/index.ts';
 import type { Block, Book } from '../../pdf/types.ts';
 import { listBooks } from '../../storage/index.ts';
 import {
@@ -705,6 +712,100 @@ function GalleryContent({
             </VStack>
           </VStack>
         </Section>
+
+        {/* Section 12: Reading Surface */}
+        <Section title="Reading Surface" borderBottomColor={theme.border.subtle}>
+          <VStack gap="xxl">
+            {/* 1. All four ChapterOpening treatments stacked */}
+            <VStack gap="xl">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                1. CHAPTER OPENING TREATMENTS (32PT MEASURE)
+              </Text>
+
+              {/* Eyebrow Treatment */}
+              <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
+                <Text variant="caption" tone="tertiary" weight="semibold">
+                  TREATMENT: EYEBROW
+                </Text>
+                <View style={{ marginTop: space.sm }}>
+                  <ChapterOpening
+                    title="The Elements of Typographic Style"
+                    chapterNumber={1}
+                    chapterCount={12}
+                    treatment="eyebrow"
+                  />
+                  <ParagraphBlock text={bodyParagraphs[0]} />
+                  <ParagraphBlock text={bodyParagraphs[1]} />
+                </View>
+              </View>
+
+              {/* Plain Treatment */}
+              <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
+                <Text variant="caption" tone="tertiary" weight="semibold">
+                  TREATMENT: PLAIN
+                </Text>
+                <View style={{ marginTop: space.sm }}>
+                  <ChapterOpening
+                    title="The Elements of Typographic Style"
+                    chapterNumber={1}
+                    chapterCount={12}
+                    treatment="plain"
+                  />
+                  <ParagraphBlock text={bodyParagraphs[0]} />
+                  <ParagraphBlock text={bodyParagraphs[1]} />
+                </View>
+              </View>
+
+              {/* Initial Treatment */}
+              <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
+                <Text variant="caption" tone="tertiary" weight="semibold">
+                  TREATMENT: INITIAL (RAISED INITIAL)
+                </Text>
+                <View style={{ marginTop: space.sm }}>
+                  <ChapterOpening
+                    title="The Elements of Typographic Style"
+                    chapterNumber={1}
+                    chapterCount={12}
+                    treatment="initial"
+                    firstParagraph={bodyParagraphs[0]}
+                  />
+                  <ParagraphBlock text={bodyParagraphs[1]} />
+                </View>
+              </View>
+
+              {/* Smallcaps Treatment */}
+              <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
+                <Text variant="caption" tone="tertiary" weight="semibold">
+                  TREATMENT: SMALLCAPS (FAUX SMALL CAPS)
+                </Text>
+                <View style={{ marginTop: space.sm }}>
+                  <ChapterOpening
+                    title="The Elements of Typographic Style"
+                    chapterNumber={1}
+                    chapterCount={12}
+                    treatment="smallcaps"
+                    firstParagraph={bodyParagraphs[0]}
+                  />
+                  <ParagraphBlock text={bodyParagraphs[1]} />
+                </View>
+              </View>
+            </VStack>
+
+            {/* 2. Paragraph Rhythm Specimen */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                2. PARAGRAPH & HEADING RHYTHM SPECIMEN
+              </Text>
+              <View style={[styles.readingSpecimen, { backgroundColor: theme.surface.page, borderColor: theme.border.subtle }]}>
+                <ParagraphBlock text={bodyParagraphs[0]} />
+                <ParagraphBlock text={bodyParagraphs[1]} />
+                <HeadingBlock text="Section 1.1: The Asymmetric Rhythm of Headings" level={1} />
+                <ParagraphBlock text={bodyParagraphs[2 % bodyParagraphs.length]} />
+                <ParagraphBlock text={bodyParagraphs[3 % bodyParagraphs.length]} />
+              </View>
+            </VStack>
+          </VStack>
+        </Section>
       </ScrollView>
 
       {/* Theme Selection Controls */}
@@ -833,5 +934,11 @@ const styles = StyleSheet.create({
   },
   sideBySideCard: {
     flex: 1,
+  },
+  readingSpecimen: {
+    paddingHorizontal: space.xxl,
+    paddingVertical: space.xl,
+    borderRadius: radius.md,
+    borderWidth: 1,
   },
 });

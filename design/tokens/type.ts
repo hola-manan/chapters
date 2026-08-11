@@ -71,3 +71,11 @@ export const readingType = {
   fontFamily: readingFontFamily,
   getStyle: getReadingStyle,
 } as const;
+
+// Multiples of the reading base size, for opening treatments.
+export const readingAccentType = {
+  initialScale: 3.2,     // raised initial: 19 * 3.2 ≈ 61pt
+  leadScale: 0.82,       // small-caps lead words, before uppercasing
+  leadTracking: 0.8,     // letterspacing for uppercased lead words
+} as const;
+

@@ -26,6 +26,7 @@ export const space = {
   xxl: 32,
   xxxl: 48,
   minTouchTarget: 44,
+  paragraphGap: 16,   // space between paragraphs in the reading surface
 } as const;
 
 export type SpaceValue = (typeof space)[keyof typeof space];
