@@ -2,9 +2,9 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 import { space } from '../../../design';
-import { ChapterRow, ContentsHeader, DevToggles } from '../../../features';
+import { ChapterRow, ContentsHeader } from '../../../features';
 import type { Book } from '../../../pdf/types';
-import { computeBookProgress, getBook, getBookPrefs, resumeChapterId, type BookPrefs } from '../../../storage';
+import { getBook, getBookPrefs, resumeChapterId, type BookPrefs } from '../../../storage';
 import { Text, useTheme } from '../../../ui';
 
 export default function ContentsScreen() {
@@ -14,7 +14,6 @@ export default function ContentsScreen() {
 
   const [book, setBook] = useState<Book | null>(null);
   const [prefs, setPrefs] = useState<BookPrefs>({});
-  const [showSerials, setShowSerials] = useState(false);
 
   const loadData = useCallback(async () => {
     if (id) {
@@ -43,15 +42,9 @@ export default function ContentsScreen() {
     );
   }
 
-  const bookProgress = computeBookProgress(book, prefs);
   const targetChapterId = resumeChapterId(book, prefs);
 
-  const renderHeader = () => (
-    <View>
-      <ContentsHeader book={book} progress={bookProgress} />
-      <DevToggles showSerials={showSerials} onToggleSerials={setShowSerials} />
-    </View>
-  );
+  const renderHeader = () => <ContentsHeader book={book} />;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
@@ -68,7 +61,6 @@ export default function ContentsScreen() {
               chapter={item}
               progress={chProgress}
               isResumeTarget={isResumeTarget}
-              showSerialNumber={showSerials}
               index={index}
               onPress={() => router.push(`/book/${book.id}/${item.id}`)}
             />

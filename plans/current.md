@@ -1,90 +1,80 @@
-# Fixes — chapter rows as cards, card art layout, word counts, navigator theming
+# Fixes — progress recording, serial numbers, contents header, generic titles
 
-Four changes from on-device review. Two are design decisions from the human, two are defects.
+Five changes from on-device review. Read `GEMINI.md` first. No hardcoded colours, sizes, radii or
+durations in `ui/` or `features/` — there are tests enforcing it.
 
-Read `GEMINI.md` first. No hardcoded colours, sizes, radii or durations anywhere in `ui/` or
-`features/` — there are tests enforcing this.
+## 1. Reading does not record progress — fix it
 
-## 1. Chapter rows become raised cards
+The reader saves progress only from a throttled `onScroll`, which is unreliable and misses several
+real cases. Progress is therefore always 0, which is also why the card's progress bar never appears.
 
-**Decided by the human.** Rows currently sit at `elevation={0}` — the same colour as the page —
-with dividers off by default, so nothing separates one row from the next. On a dark ground that
-reads as one flat, very dark field.
+Fix in `app/book/[id]/[chapter].tsx`. **Do not restyle the reader** — it stays ugly until its own
+design pass. Only its progress behaviour changes.
 
-- `ChapterRow` becomes a raised card: `Surface elevation={1}` with a radius and a border, matching
-  the treatment of `BookCard` on the library screen.
-- Switch from `PressableRow` to `PressableCard`. The rows are now discrete inset cards rather than
-  full-bleed list rows, so scale feedback is right and the overlay treatment is not. Set `radius`
-  on the `PressableCard` itself so the press state is clipped to the card's shape.
-- The list supplies horizontal margins and the vertical gap between cards, from space tokens.
+- Keep the throttled `onScroll`, but also save on **`onScrollEndDrag`** and
+  **`onMomentumScrollEnd`**, so a save is guaranteed whenever scrolling stops rather than depending
+  on where the throttle happened to land.
+- Save once more when the screen loses focus (`useFocusEffect` cleanup), so a partial read persists
+  even if no scroll-end event fired.
+- **Handle chapters that do not scroll.** If `contentSize.height <= layoutMeasurement.height` the
+  whole chapter is already on screen and no scroll event will ever fire, so progress can never move
+  off 0. In that case record progress as complete when the screen loses focus. Track
+  "is scrollable" from `onContentSizeChange` / `onLayout`.
+- Progress must be monotonic within a session: never write a value **lower** than what is already
+  stored for that chapter. Scrolling back up to re-read a passage must not undo progress.
+- `saveReadingPosition` does a read-modify-write of one JSON file. Serialise the writes (a simple
+  in-flight promise chain) so rapid scroll events cannot interleave and clobber each other.
 
-**This settles the divider question:** cards separate themselves, so no rules are needed.
+## 2. Serial numbers stay — remove the toggle
 
-- Remove the divider toggle from `DevToggles` and the `ItemSeparatorComponent` from the Contents
-  screen.
-- **Keep** the `Divider` component and its `inset` prop — it remains a valid tier-2 primitive and is
-  still used by the stacks' `dividers` prop. It is simply not used here.
-- Keep the serial-number toggle; that decision is still open.
+**Decided by the human.** Serial numbers on chapter rows are better.
 
-## 2. Progress bar and read time move onto the cover art
+- `ChapterRow` always shows the serial number; drop the `showSerialNumber` prop.
+- Delete `features/contents/DevToggles.tsx` entirely and its use in the Contents screen. Both
+  questions it existed to answer are now settled (dividers resolved by rows becoming cards, serial
+  numbers resolved here).
 
-**Decided by the human.** They currently sit in the metadata line under the title.
+## 3. Remove the progress bar from `ContentsHeader`
 
-- **Progress bar**: a thin fill flush along the **bottom edge of the `GeneratedCover`**, spanning
-  the card's full width, in `accent.base`, with its width set by the book's progress. It should
-  read as part of the image, not as a widget sitting near it. At 0% it is simply absent.
-- **Read time** (`"12 min read"`): placed **on** the cover art.
-- **The title stays below the art**, alone. Remove the metadata line entirely.
+**Decided by the human.** Progress lives on the card art only.
 
-On legibility: do **not** add a scrim by default. `GeneratedCover` constrains its background
-lightness per theme — roughly 88–94% in light, 14–22% in dark — so `theme.text.primary` has real
-contrast against it in both. Verify this holds across the layout presets; only if a preset's
-shapes genuinely break it, add a minimal scrim.
+- Remove the bar and the percentage from `ContentsHeader`. Keep the book title and the total read
+  time.
+- Per-chapter state on the rows continues to carry the detail.
 
-## 3. Book read time shows "1 min" — word counts are missing on existing books
+## 4. Card progress bar stays absent at 0%
 
-`wordCount` was added to `Chapter` in the previous pass, so books imported **before** it have no
-value stored. `BookCard` sums `c.wordCount || 0`, gets 0, and `readMinutes` floors to 1.
+**Decided by the human.** No change needed — confirm the current behaviour is that the bar renders
+only when progress is above 0, and that it appears once progress is recorded.
 
-Fix by backfilling on read rather than forcing a re-import:
+## 5. Metadata titles are not automatically better than filenames
 
-- In `storage/`, when a book is loaded, if a chapter's `wordCount` is missing or 0 **and** it has
-  blocks, compute it from the blocks and use that. Persist the corrected book so the work happens
-  once per book, not on every render.
-- Keep the computation in one shared helper so parse-time and backfill can never disagree.
-- A chapter with genuinely no blocks keeps a word count of 0; that is correct, not a bug to paper
-  over.
+`The Royal Road to Card Magic.pdf` reports a metadata title of `"Main Contents"` — the PDF's title
+field is simply wrong, and the filename is far better.
 
-## 4. Navigation chrome is unthemed
+In `pdf/chapters.ts`, extend the title resolution:
 
-`<Stack />` in `app/_layout.tsx` has no `screenOptions`, so the navigation header still uses React
-Navigation's defaults while every screen below uses the app's theme. In dark mode this puts a light
-header above a near-black screen.
+- Add a check for generic or placeholder metadata titles — `"Main Contents"`, `"Contents"`,
+  `"Untitled"`, `"Document"`, `"PDF"`, `"Microsoft Word - ..."` and similar — case-insensitive.
+- When the metadata title is generic, fall back to the cleaned filename instead.
+- Add Node tests covering: a good metadata title wins; a generic one loses to the filename; both
+  bad falls back to `"Untitled Book"`.
 
-- Configure `screenOptions` from the theme: header background `surface.page`, tint and title colour
-  `text.primary`, and no header shadow or bottom border — the design leans on hairlines and
-  lightness, not elevation.
-- The options must be read **inside** the `ThemeProvider`, so extract the themed `<Stack />` into a
-  small child component; `useTheme` cannot be called in the same component that renders the
-  provider.
-- Set the status bar style from `theme.scheme` (`expo-status-bar` is already installed) so the
-  clock and battery icons stay legible in both themes.
-- Give the Contents screen a title of the book's name, or hide the header title if that duplicates
-  `ContentsHeader` — pick whichever avoids showing the title twice, and leave a brief comment.
+Note in a comment that existing books cannot be retitled without re-importing, since the title is
+resolved at parse time and stored.
 
 ## Explicitly not in this phase
 
-- Do not restyle the reader screen.
-- Do not change the cover generator's hue arc, layouts or lightness bands.
+- Do not restyle the reader beyond its progress behaviour.
+- Do not change the cover generator.
 - Do not change any token value.
-- Do not resolve the serial-number toggle.
 
 ## Done means
 
-`npx tsc --noEmit`, `npm run lint` and `node --test` all pass. Chapter rows read as cards, the
-library card shows its progress bar on the art's bottom edge with read time on the art and only the
-title below, existing books report a real read time, and the navigation header matches the theme in
-both light and dark.
+`npx tsc --noEmit`, `npm run lint` and `node --test` all pass. Scrolling a chapter and returning to
+Contents shows real progress; a short chapter that does not scroll still completes; `DevToggles` is
+gone; the Contents header has no progress bar; and a book whose metadata title is generic uses its
+filename.
 
 ## Reminders
 

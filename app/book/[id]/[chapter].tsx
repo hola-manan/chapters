@@ -1,7 +1,10 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
+  LayoutChangeEvent,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   StyleSheet,
   Text,
@@ -19,6 +22,13 @@ export default function ReaderScreen() {
   const [chapter, setChapter] = useState<Chapter | null>(null);
   const [initialIndex, setInitialIndex] = useState<number | null>(null);
 
+  const maxProgressRef = useRef<number>(0);
+  const maxBlockIndexRef = useRef<number>(0);
+  const contentHeightRef = useRef<number>(0);
+  const layoutHeightRef = useRef<number>(0);
+  const isScrollableRef = useRef<boolean>(false);
+  const hasMeasuredRef = useRef<boolean>(false);
+
   useEffect(() => {
     if (id) {
       getBook(id).then((b) => {
@@ -28,11 +38,31 @@ export default function ReaderScreen() {
           setChapter(found || null);
           getReadingPosition(id, chapterId).then((pos) => {
             setInitialIndex(pos.blockIndex);
+            maxProgressRef.current = pos.progress;
+            maxBlockIndexRef.current = pos.blockIndex;
           });
         }
       });
     }
   }, [id, chapterId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (!id || !chapterId) return;
+
+        // Handle chapters that do not scroll: if content size <= layout measurement the whole
+        // chapter is on screen and no scroll event will ever fire, so record it complete on exit.
+        // Only once both have actually been measured — otherwise backing out before the list lays
+        // out would mark an unread chapter as finished.
+        if (hasMeasuredRef.current && !isScrollableRef.current) {
+          maxProgressRef.current = 1;
+        }
+
+        saveReadingPosition(id, chapterId, maxBlockIndexRef.current, maxProgressRef.current);
+      };
+    }, [id, chapterId])
+  );
 
   if (!book || !chapter) {
     return (
@@ -49,22 +79,48 @@ export default function ReaderScreen() {
       ? book.chapters[currentChapterIdx + 1]
       : null;
 
-  const handleScroll = (event: {
-    nativeEvent: {
-      contentOffset: { y: number };
-      layoutMeasurement: { height: number };
-      contentSize: { height: number };
-    };
-  }) => {
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, layoutMeasurement, contentSize } = event.nativeEvent;
     const yOffset = contentOffset.y;
+
+    if (contentSize.height > 0 && layoutMeasurement.height > 0) {
+      contentHeightRef.current = contentSize.height;
+      layoutHeightRef.current = layoutMeasurement.height;
+      isScrollableRef.current = contentSize.height > layoutMeasurement.height;
+      hasMeasuredRef.current = true;
+    }
+
     // Estimate block index based on average block height (~40px)
     const blockIndex = Math.max(0, Math.floor(yOffset / 40));
     const maxScroll = contentSize.height - layoutMeasurement.height;
     const progress = maxScroll > 0 ? Math.min(1, Math.max(0, yOffset / maxScroll)) : 1;
 
+    if (progress > maxProgressRef.current) {
+      maxProgressRef.current = progress;
+    }
+    if (blockIndex > maxBlockIndexRef.current) {
+      maxBlockIndexRef.current = blockIndex;
+    }
+
     if (id && chapterId) {
-      saveReadingPosition(id, chapterId, blockIndex, progress);
+      saveReadingPosition(id, chapterId, maxBlockIndexRef.current, maxProgressRef.current);
+    }
+  };
+
+  const handleContentSizeChange = (_w: number, h: number) => {
+    contentHeightRef.current = h;
+    if (h > 0 && layoutHeightRef.current > 0) {
+      isScrollableRef.current = h > layoutHeightRef.current;
+      hasMeasuredRef.current = true;
+    }
+  };
+
+  const handleLayout = (e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height;
+    layoutHeightRef.current = h;
+    if (contentHeightRef.current > 0 && h > 0) {
+      isScrollableRef.current = contentHeightRef.current > h;
+      hasMeasuredRef.current = true;
     }
   };
 
@@ -92,6 +148,10 @@ export default function ReaderScreen() {
             initialIndex && initialIndex < displayBlocks.length ? initialIndex : undefined
           }
           onScroll={handleScroll}
+          onScrollEndDrag={handleScroll}
+          onMomentumScrollEnd={handleScroll}
+          onContentSizeChange={handleContentSizeChange}
+          onLayout={handleLayout}
           scrollEventThrottle={500}
           onScrollToIndexFailed={(info) => {
             flatListRef.current?.scrollToOffset({

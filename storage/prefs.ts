@@ -40,19 +40,42 @@ export async function getBookPrefs(bookId: string): Promise<BookPrefs> {
   }
 }
 
-export async function saveReadingPosition(
+let saveChain: Promise<void> = Promise.resolve();
+
+export function saveReadingPosition(
   bookId: string,
   chapterId: string,
   blockIndex: number,
   progress: number = 0
 ): Promise<void> {
-  const path = getPrefsPath(bookId);
-  const prefs = await getBookPrefs(bookId);
+  saveChain = saveChain
+    .then(async () => {
+      const path = getPrefsPath(bookId);
+      const prefs = await getBookPrefs(bookId);
 
-  const clampedProgress = Math.min(1, Math.max(0, progress));
-  prefs[chapterId] = { blockIndex, progress: clampedProgress };
+      const clampedProgress = Math.min(1, Math.max(0, progress));
+      const existing = prefs[chapterId];
+      const existingProgress = existing?.progress ?? 0;
+      const existingBlockIndex = existing?.blockIndex ?? 0;
 
-  await FileSystem.writeAsStringAsync(path, JSON.stringify(prefs));
+      const finalProgress = Math.max(existingProgress, clampedProgress);
+      const finalBlockIndex =
+        existingProgress > clampedProgress
+          ? existingBlockIndex
+          : Math.max(existingBlockIndex, blockIndex);
+
+      prefs[chapterId] = {
+        blockIndex: finalBlockIndex,
+        progress: finalProgress,
+      };
+
+      await FileSystem.writeAsStringAsync(path, JSON.stringify(prefs));
+    })
+    .catch((err) => {
+      console.warn('Failed to save reading position:', err);
+    });
+
+  return saveChain;
 }
 
 export async function getReadingPosition(

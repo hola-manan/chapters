@@ -11,7 +11,6 @@ export type ChapterRowProps = {
   chapter: Chapter;
   progress: number;
   isResumeTarget: boolean;
-  showSerialNumber?: boolean;
   index: number;
   onPress: () => void;
   testID?: string;
@@ -21,7 +20,6 @@ export function ChapterRow({
   chapter,
   progress,
   isResumeTarget,
-  showSerialNumber = false,
   index,
   onPress,
   testID,
@@ -34,13 +32,11 @@ export function ChapterRow({
     <PressableCard radius="lg" onPress={onPress} testID={testID}>
       <Surface elevation={1} border radius="lg" paddingX="lg" paddingY="md">
         <HStack align="center" gap="md">
-          {showSerialNumber && (
-            <View style={{ width: space.xl, alignItems: 'flex-start' }}>
-              <Text variant="footnote" tone="secondary">
-                {index + 1}
-              </Text>
-            </View>
-          )}
+          <View style={{ width: space.xl, alignItems: 'flex-start' }}>
+            <Text variant="footnote" tone="secondary">
+              {index + 1}
+            </Text>
+          </View>
 
           <Text variant="body" tone="primary" numberOfLines={2} flex>
             {titleText}

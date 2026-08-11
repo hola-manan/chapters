@@ -49,6 +49,16 @@ section-opening pages. Any size-based heading pass will surface these first. The
 recurring-text-at-same-y filter is not polish — it is required for the one book in this corpus
 that actually needs the heuristic path.
 
+**5. Embedded metadata titles are often junk.**
+The PDF `Info` dictionary's `Title` is authored by whatever produced the file, and in this corpus
+it comes back as `Main Contents` (the title of the first bookmark, not the book) and
+`Microsoft Word - <something>`. A metadata title is therefore only *preferred* over the filename
+when it survives a generic-title check (`isNonTrivialTitle`): exact matches against a denylist
+(`contents`, `document1`, `untitled`, …), anything prefixed `Microsoft Word - `, and anything with
+no alphanumerics. Filename is the fallback, `Untitled Book` the last resort. **The resolved title
+is baked into `book.json` at import time**, so changing this logic does not retitle books already
+in the library — they must be re-imported.
+
 ## Consequences for pdf.js integration
 
 - `getDocument({ useWorkerFetch: false, isEvalSupported: false })` works in Node.

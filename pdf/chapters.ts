@@ -4,17 +4,51 @@ import type { Block, Book, Chapter, OutlineEntry, TextRun } from './types.ts';
 export function cleanBookTitle(raw: string): string {
   if (!raw) return '';
   return raw
+    .replace(/\.pdf$/gi, '')
     .replace(/\s*[-_]?\s*\(?\s*pdfdrive(?:\.com)?\s*\)?\s*$/gi, '')
     .replace(/_/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
+// Existing books cannot be retitled without re-importing, since the title is resolved at parse time and stored.
 export function isNonTrivialTitle(title: string): boolean {
+  if (!title) return false;
   const trimmed = title.trim().toLowerCase();
   if (!trimmed) return false;
-  if (/^untitled(\s+document|\s+book)?$/i.test(trimmed)) return false;
-  return /[a-z0-9]/i.test(trimmed);
+  if (!/[a-z0-9]/i.test(trimmed)) return false;
+
+  const genericTitles = [
+    'contents',
+    'main contents',
+    'table of contents',
+    'document',
+    'document1',
+    'new document',
+    'untitled',
+    'untitled document',
+    'untitled book',
+    'pdf',
+  ];
+  if (genericTitles.includes(trimmed)) return false;
+
+  if (/^(microsoft word|ms word)\s*-\s*/i.test(trimmed)) return false;
+
+  return true;
+}
+
+// Existing books cannot be retitled without re-importing, since the title is resolved at parse time and stored.
+export function resolveBookTitle(metadataTitle?: string, filenameTitle?: string): string {
+  const cleanedMeta = cleanBookTitle(metadataTitle || '');
+  const cleanedFile = cleanBookTitle(filenameTitle || '');
+
+  if (isNonTrivialTitle(cleanedMeta)) {
+    return cleanedMeta;
+  }
+  if (isNonTrivialTitle(cleanedFile)) {
+    return cleanedFile;
+  }
+  return 'Untitled Book';
 }
 
 export function displayTitle(raw: string): string {

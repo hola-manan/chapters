@@ -1,7 +1,7 @@
 import assert from 'node:assert';
 import { test } from 'node:test';
 import { runsToBlocks } from '../pdf/blocks.ts';
-import { bodyFontSize, cleanBookTitle, computeWordCount, detectChapters, displayTitle } from '../pdf/chapters.ts';
+import { bodyFontSize, cleanBookTitle, computeWordCount, detectChapters, displayTitle, resolveBookTitle } from '../pdf/chapters.ts';
 import type { Block, OutlineEntry, TextRun } from '../pdf/types.ts';
 
 test('bodyFontSize quantizes sizes and picks modal bucket by character count', () => {
@@ -175,6 +175,29 @@ test('computeWordCount counts words in paragraph and heading blocks', () => {
   ];
   assert.strictEqual(computeWordCount(blocks), 10);
 });
+
+test('resolveBookTitle: good metadata title wins, generic metadata loses to filename, both bad falls back to Untitled Book', () => {
+  assert.strictEqual(
+    resolveBookTitle('The Art of Computer Programming', 'taocp.pdf'),
+    'The Art of Computer Programming'
+  );
+  assert.strictEqual(
+    resolveBookTitle('Main Contents', 'The Royal Road to Card Magic.pdf'),
+    'The Royal Road to Card Magic'
+  );
+  assert.strictEqual(
+    resolveBookTitle('Contents', 'Laugh_Tactics_..._(PDFDrive).pdf'),
+    'Laugh Tactics ...'
+  );
+  assert.strictEqual(
+    resolveBookTitle('Microsoft Word - Document1', 'My_Notes.pdf'),
+    'My Notes'
+  );
+  assert.strictEqual(resolveBookTitle('Contents', 'Document1.pdf'), 'Untitled Book');
+  assert.strictEqual(resolveBookTitle('Microsoft Word - 123', 'Untitled.pdf'), 'Untitled Book');
+  assert.strictEqual(resolveBookTitle('', ''), 'Untitled Book');
+});
+
 
 
 
