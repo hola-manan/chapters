@@ -1,199 +1,121 @@
-# Icon, Skeleton, EmptyState, CollapsingHeader — against their real call sites
+# App identity — icon, launch screen, name, bundle identifier
 
 Read `GEMINI.md` first. No hardcoded colours, sizes, radii or durations in `ui/`, `features/` or
-`app/` — there are tests enforcing it.
+`app/` — there are tests enforcing it. (The icon generator in `scripts/` is outside those layers and
+is exempt; it is a build tool, not app code.)
 
 **The design decisions below were made by the human and are not open.** Implement them exactly.
-Every component here has an existing call site currently served by a placeholder; none of this is
-speculative library-building. `Button` and `Slider` stay `todo` — they still have no caller.
 
 Decided:
 
-- **`Icon` takes both vocabularies in one `size` prop**: type-variant names for icons beside text,
-  named steps for standalone icons.
-- **Loading shows what we already know.** Screens stop re-reading data the previous screen was
-  holding. The real header renders instantly; only the body is pending, and it gets a skeleton
-  **after a delay** so fast loads never flash.
-- **The empty library talks about reading, not importing** — the import tile is already on screen
-  and says how to import.
-- **The Contents title moves into the nav bar on scroll**, iOS large-title style, with the read time
-  fading out.
+- **Mark: stacked rules** — four horizontal bars, two pairs, alternating full and short.
+- **Ground: forest, mark in paper.** Ground `#142621`, mark `#F7F8FA`.
+- **Launch screen: the mark, centred**, on the page colour, with light and dark variants.
+- Display name **`Chapters`**, bundle identifier **`com.manansingal.chapters`**.
 
-## 1. Tier 1 — `design/tokens/icon.ts`
+## 1. The mark — exact geometry
 
-```ts
-// Ionicons are drawn to fill their square, so an icon set to the same point size as the text
-// beside it reads as larger. These are the optically corrected sizes, not the type sizes.
-export const iconSizes = {
-  // Beside text — one per UI type variant that actually pairs with an icon.
-  caption: 12,
-  footnote: 14,
-  subhead: 16,
-  body: 18,
-  title3: 20,
-  // Standalone — no text to match.
-  sm: 16,
-  md: 20,
-  lg: 24,
-} as const;
+Defined in a 100×100 field and scaled to whatever size is being written. **These numbers are the
+ones that were judged at real size on device — do not adjust them.** All bars have a corner radius
+of 3 in the same units.
 
-export type IconSizeName = keyof typeof iconSizes;
-```
+| Bar | x | y | width | height | opacity |
+|---|---|---|---|---|---|
+| 1 | 20 | 28 | 60 | 6 | 1.0 |
+| 2 | 20 | 40 | 44 | 6 | 0.75 |
+| 3 | 20 | 58 | 60 | 6 | 1.0 |
+| 4 | 20 | 70 | 32 | 6 | 0.75 |
 
-Export from `design/index.ts`.
+The 12-unit gap inside each pair and the 18-unit gap between pairs are what make it read as two
+blocks of text rather than four loose lines. Keep both.
 
-## 2. Tier 2 — `ui/primitives/Icon.tsx`
+## 2. `scripts/generate-icons.mjs` — a committed generator, not mystery binaries
 
-```ts
-export type IconProps = {
-  name: keyof typeof Ionicons.glyphMap;
-  size?: IconSizeName;                                                  // default 'body'
-  tone?: 'primary' | 'secondary' | 'tertiary' | 'accent' | 'onAccent';  // default 'primary'
-  testID?: string;
-};
-```
+There is no image tooling on this machine and `sharp` is not installed. **Write a dependency-free
+Node script** that rasterises the mark and writes real PNGs using only built-in modules
+(`node:zlib`, `node:fs`).
 
-- Resolves the pixel size from `iconSizes` and the colour from `theme.text[tone]` (or
-  `theme.accent.base` for `accent`). **No numeric `size` and no `color` prop** — the same closed-prop
-  discipline as `Text`, for the same reason.
-- Replace all three existing raw `Ionicons` call sites: `features/library/ImportTile.tsx`
-  (currently 20, accent), `features/reader/ReaderChrome.tsx` (currently 24 chevron and 22 for the
-  `Aa`, both primary). Pick sizes from the scale rather than preserving today's three arbitrary
-  numbers — that inconsistency is the bug being fixed.
-- After this, `@expo/vector-icons` should be imported only by `ui/primitives/Icon.tsx` and the
-  gallery. Do not leave a second import anywhere in `features/`.
+Requirements:
 
-## 3. Tier 2 — `ui/feedback/Skeleton.tsx`
+- Draw into an RGBA pixel buffer: fill the ground, then composite each rounded bar over it with its
+  opacity. Rounded corners come from a rounded-rectangle coverage test.
+- **Anti-alias by supersampling** — render at 4× the target and box-filter down. Without it the bar
+  ends and corners will be visibly jagged at 1024px.
+- Encode PNG by hand: signature, `IHDR` (8-bit RGBA, colour type 6), `IDAT` of zlib-deflated
+  scanlines each prefixed with filter byte 0, then `IEND`. CRC32 per chunk.
+- Support a transparent ground (alpha 0) for the variants that need one.
+- Expose it as an npm script: `"icons": "node scripts/generate-icons.mjs"`.
 
-```ts
-export type SkeletonTextProps = {
-  lines?: number;      // default 3
-  delayMs?: number;    // default 200 — nothing renders before this elapses
-  testID?: string;
-};
-```
+Files it must write, all into `assets/images/`:
 
-- Renders `lines` rounded bars at `theme.surface.sunken`, reading-line height, with varied widths
-  (100%, 92%, 76% cycling) so it reads as prose rather than a table. Vertical rhythm matches
-  `ParagraphBlock`'s `space.paragraphGap`.
-- **Renders nothing at all until `delayMs` has elapsed.** A skeleton that appears and vanishes
-  inside 200ms reads as a flicker, and most books in this library load faster than that. Clear the
-  timer on unmount.
-- Animation is a **gentle opacity pulse** between two values via `withRepeat(withTiming(...))` — not
-  a sweeping shimmer gradient. A shimmer needs a masked gradient and reads as a busy app; this one
-  should read as a quiet page waiting. Static under `useReducedMotion()`.
-- Export from `ui/feedback/index.ts` and `ui/index.ts`.
+| File | Size | Ground | Mark |
+|---|---|---|---|
+| `icon.png` | 1024 | `#142621` | `#F7F8FA` |
+| `icon-dark.png` | 1024 | `#0C1412` | `#F7F8FA` |
+| `icon-tinted.png` | 1024 | `#1C1C1C` | `#EDEDED` |
+| `android-icon-foreground.png` | 1024 | transparent | `#F7F8FA` |
+| `android-icon-background.png` | 1024 | `#142621` | — (ground only, no bars) |
+| `android-icon-monochrome.png` | 1024 | transparent | `#FFFFFF` |
+| `splash-icon.png` | 512 | transparent | `#142621` |
+| `splash-icon-dark.png` | 512 | transparent | `#F7F8FA` |
+| `favicon.png` | 48 | `#142621` | `#F7F8FA` |
 
-## 4. Tier 2 — `ui/feedback/EmptyState.tsx`
+Notes on two of them. The **tinted** variant is greyscale by design — iOS applies its own tint to it,
+so shipping colour there produces a muddy result. The **Android foreground** must keep the mark
+well inside the safe area; Android masks adaptive icons aggressively, so inset the whole 100-unit
+field to about 72% of the canvas and centre it.
 
-```ts
-export type EmptyStateProps = {
-  title?: string;
-  message: string;
-  children?: React.ReactNode;   // escape hatch; neither current call site uses it
-  testID?: string;
-};
-```
+## 3. `app.json`
 
-Centred, generous vertical padding. `title` as `Text variant="body" weight="semibold"`, `message` as
-`Text variant="subhead" tone="secondary" align="center"` with a constrained max width so the line
-does not run the full screen. **No action slot** — do not design one before something needs it.
+- `name`: `Chapters` (slug stays `chapters` — changing it would orphan the EAS project).
+- `ios.bundleIdentifier`: `com.manansingal.chapters`.
+- `ios.icon` becomes the object form so iOS 18 gets all three variants:
+  `{ "light": "./assets/images/icon.png", "dark": "./assets/images/icon-dark.png", "tinted": "./assets/images/icon-tinted.png" }`.
+  Keep the top-level `icon` pointing at `icon.png` as the fallback.
+- `android.adaptiveIcon.backgroundColor`: `#142621`.
+- `expo-splash-screen` plugin config: `image` `./assets/images/splash-icon.png`, `imageWidth` 160,
+  `resizeMode` `contain`, `backgroundColor` `#F7F8FA`, and a `dark` block with
+  `image` `./assets/images/splash-icon-dark.png` and `backgroundColor` `#0C1412`.
 
-## 5. Tier 2 — `ui/motion/useScrollY.ts`
+The splash colours are the app's real page colours in each theme, so the launch screen and the first
+frame of the app are the same ground.
 
-```ts
-export function useScrollY(): {
-  scrollY: SharedValue<number>;
-  scrollHandler: ReturnType<typeof useAnimatedScrollHandler>;
-};
-```
+## 4. Delete the scaffolding
 
-The plain sibling of `useAutoHide`: it only reports the offset. Export from `ui/motion/index.ts`.
+Remove `assets/images/react-logo.png`, `react-logo@2x.png`, `react-logo@3x.png` and
+`partial-react-logo.png`. **Grep the whole repo for each filename before deleting** and fix any
+import you find — they came from the `create-expo-app` template and should have no callers, but
+verify rather than assume.
 
-## 6. Tier 2 — `ui/overlay/CollapsingHeader.tsx`
+## 5. Test — `test/icons.test.ts`
 
-The compact bar only. The large title stays in the list's own header where it already lives; this
-component is what appears above it.
+One test, guarding the hand-written PNG encoder, which is the only part of this that can fail
+silently:
 
-```ts
-export type CollapsingHeaderProps = {
-  scrollY: SharedValue<number>;
-  title: string;
-  collapseDistance: number;   // px of scroll over which the handover completes
-  onBack?: () => void;
-  testID?: string;
-};
-```
+- Read `assets/images/icon.png`, assert the 8-byte PNG signature, then parse the `IHDR` chunk and
+  assert width 1024, height 1024, bit depth 8 and colour type 6.
+- Do the same for `splash-icon.png` at 512.
 
-- Absolutely positioned, safe-area aware, same construction as `ReaderChrome`: background
-  `theme.surface.page`, hairline bottom border.
-- The **back button is always visible and never animates** — it is navigation, not decoration.
-- Background, hairline and compact title interpolate from `scrollY` across `[0, collapseDistance]`:
-  invisible at the top, fully present once collapsed. The compact title also rises a few points as
-  it fades in, so it arrives rather than materialises.
-- All interpolation inside `useAnimatedStyle`. Nothing scroll-linked may run on the JS thread.
-- Export from `ui/overlay/index.ts` and `ui/index.ts`.
+If the encoder produces a corrupt file, the build will fail with something unhelpful much later;
+this catches it here.
 
-## 7. Stop re-reading what the previous screen already had
+## 6. Do not change
 
-This is the core of the pass. Both screens currently mount, show placeholder text, and read from
-disk before they can render anything — despite the screen you just left holding the answer.
-
-**Library → Contents.** Push with the book title as a route param alongside the id. In
-`app/book/[id]/index.tsx` render `ContentsHeader` from that param **immediately**, before `getBook`
-resolves. When the book arrives, render from it instead.
-
-**Contents → Reader.** Push with the chapter's display title, its 1-based number and the chapter
-count. In `app/book/[id]/[chapter].tsx` the full-screen "Loading chapter…" goes away entirely:
-render `ReaderChrome` and a real `ChapterOpening` from the params at once, with `SkeletonText` below
-it until the blocks arrive.
-
-Three rules that keep this honest:
-
-- **Params are used only while the loaded data is absent.** Once `book` is present everything
-  derives from it. Paging between chapters makes the params stale immediately, so a component that
-  keeps preferring them will show the wrong chapter title from the second chapter onward.
-- **Both screens must still work with no params at all** — a cold deep link, or a reload while the
-  reader is open. Fall back to rendering the skeleton until the data arrives.
-- Do not pass objects through params. Title, number and count only, as strings.
-
-## 8. Wire up the two remaining call sites
-
-- **Empty library.** `features/library/LibraryFeed.tsx` currently renders one line of secondary
-  text. Replace it with `EmptyState`, title `Nothing here yet.` and message
-  `Chapters turns a PDF into a handful of short reads.` It must not mention importing — `ImportTile`
-  sits directly above it and already says that.
-- **Empty chapter.** The reader's "No text blocks found in this chapter." becomes an `EmptyState`.
-  Keep both existing message strings exactly as they are, including the scanned-document variant.
-- **Contents collapse.** `app/book/[id]/index.tsx` gets `headerShown: false` in `app/_layout.tsx`,
-  like the reader, and renders `CollapsingHeader` itself. That is what buys UI-thread control of
-  both ends of the handover; a native header title cannot be animated from a worklet. The native
-  back **gesture** is unaffected — that is `gestureEnabled`, not `headerShown`. Drive it with
-  `useScrollY` on the chapter `FlatList`. Measure `collapseDistance` from the large title's own
-  height via `onLayout` rather than guessing. The read time fades with the large header, not the
-  bar. Remove the now-stale comment in `ContentsHeader` about deferring collapse until #15 exists.
-
-## 9. Gallery — `app/_dev/gallery.tsx`
-
-`Icon` across every size and tone; `SkeletonText` at 1, 3 and 6 lines with `delayMs={0}` so it is
-visible without waiting; `EmptyState` in both of its real configurations. `CollapsingHeader` is not
-gallery material — it means nothing without a live scroll view.
-
-## 10. Do not change
-
-The reader's reading surface, chrome behaviour, paging, commit timing, settings sheet, import flow
-and progress recording are all settled.
+Anything under `app/`, `features/`, `ui/`, `design/`, `pdf/` or `storage/`. This pass touches only
+`assets/`, `scripts/`, `app.json`, `package.json` and `test/`.
 
 ## Gates
 
+- `npm run icons` — must produce every file in the table above.
 - `npx tsc --noEmit`
 - `npm run lint`
-- `node --test --experimental-strip-types test/pdf.test.ts test/design.test.ts`
+- `node --test --experimental-strip-types test/pdf.test.ts test/design.test.ts test/icons.test.ts`
 
 ## Constraints
 
-- **Do not touch anything outside this project directory.** List any out-of-repo need at the end of
-  your response instead of acting on it.
+- **Do not touch anything outside this project directory.** No package installs — the generator must
+  work with Node built-ins alone. If you believe a dependency is unavoidable, stop and say so at the
+  end of your response instead of installing it.
 - **Do not commit.** Leave the tree dirty for review.
 - `pdfs/` is read-only.
 - Do not upgrade Expo, React Native or any pinned dependency. SDK 54 is a hard constraint.
