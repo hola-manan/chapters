@@ -1,172 +1,109 @@
-# Chapters as a PWA — port to web via react-native-web
+# Deploy the PWA to GitHub Pages under /chapters/
 
-Read `GEMINI.md` first. No hardcoded colours, sizes, radii or durations in `ui/`, `features/` or
-`app/` — there are tests enforcing it.
+Read `GEMINI.md` first.
 
-**The decisions below were made by the human and are not open.**
+**Decided by the human and not open:** a **public** GitHub repo named `chapters`, deployed as a
+**GitHub Pages project page**, so the app is served from `https://<user>.github.io/chapters/` —
+not from the root of a domain.
 
-- **Port, not rebuild.** One codebase serving iOS and web through `react-native-web`, which is
-  already installed. Do not rewrite any component in HTML.
-- **The PWA is for the iPhone home screen**, as a free alternative to a signed native build. Phone
-  layout throughout; a desktop-specific layout is **not** in scope.
-- **Parsed text only.** The web build never stores the source PDF — only the parsed book. Safari's
-  per-origin quota is finite and a 300MB PDF has no business in it.
-- **Native must keep working exactly as it does.** Every change here is additive or behind a
-  platform split.
+Everything the web port produces currently assumes root hosting. That assumption is wrong in five
+separate places, and **each one fails silently**: a missed path gives a blank page, an uninstallable
+app, or a service worker with the wrong scope, none of which announce themselves. This pass fixes
+all five and adds the workflow that deploys.
 
-## The shape of the job
+## 1. `app.json` — tell Expo the base path
 
-Three seams, and nothing else should need touching:
-
-1. Storage — `expo-file-system` does not exist on web.
-2. PDF parsing — the hidden WebView does not exist on web, and does not need to: pdf.js runs
-   natively there.
-3. PWA plumbing — manifest, icons, service worker, HTML shell.
-
-Metro resolves `foo.web.ts` in preference to `foo.ts` when bundling for web. That is the mechanism
-for every split below.
-
-## 1. The storage seam — `storage/kv.ts` + `storage/kv.web.ts`
-
-Every `expo-file-system` call in `storage/` reduces to six operations. Introduce one module for them
-and put the four existing storage files on top of it.
-
-```ts
-// storage/kv.ts — the contract, implemented twice
-export async function readText(key: string): Promise<string | null>;
-export async function writeText(key: string, value: string): Promise<void>;
-export async function exists(key: string): Promise<boolean>;
-export async function remove(key: string): Promise<void>;
-export async function removePrefix(prefix: string): Promise<void>;
-export async function copyInto(key: string, sourceUri: string): Promise<string | null>;
-```
-
-- **`storage/kv.ts` (native)** wraps `expo-file-system/legacy` exactly as the current code does:
-  keys are paths relative to `documentDirectory`, `writeText` creates intermediate directories,
-  `copyInto` copies a file in and returns its new URI.
-- **`storage/kv.web.ts`** is IndexedDB — one database, one object store, the key string used
-  verbatim. Write it against the raw IndexedDB API; **do not add a dependency**. `removePrefix`
-  iterates keys with `IDBKeyRange.bound(prefix, prefix + '￿')`. **`copyInto` returns `null`** —
-  the web build stores no source PDFs, and that is the decision, not a limitation to work around.
-- Rewrite `storage/files.ts`, `library.ts`, `prefs.ts` and `settings.ts` to use `kv` and **import
-  `expo-file-system` nowhere**. Keep every exported function signature and all existing behaviour —
-  including `saveReadingPosition`'s promise-chain serialisation and its monotonic `Math.max`.
-- `saveBookSource` returns whatever `copyInto` gives, so on web `book.sourceUri` ends up empty.
-  **Grep for every read of `sourceUri` and confirm nothing depends on it** before assuming that is
-  safe; report anything that does.
-
-## 2. The parsing seam — `pdf/parse.web.ts`
-
-`pdf/parse.ts` orchestrates the WebView bridge. Rather than surgery on it, add a whole-module web
-replacement exporting the same public surface, so `import { parsePdf } from '../pdf'` is unchanged
-at every call site.
-
-`pdf/parse.web.ts` must:
-
-- Import `pdfjs-dist` directly — it is already a dependency. Set `GlobalWorkerOptions.workerSrc`
-  to the bundled worker. **If the worker cannot be wired up under Metro, stop and say so** rather
-  than silently falling back to pdf.js's main-thread fake worker: parsing a large book on the main
-  thread freezes the very progress UI that is meant to be reassuring.
-- Read the picked file as an `ArrayBuffer` (`fetch(uri).then(r => r.arrayBuffer())` works for the
-  blob URIs the web document picker returns) and hand it straight to `getDocument`.
-- Walk pages, collect `TextRun`s in the same shape the native path produces — including font size
-  from the transform matrix as `sqrt(b² + d²)`, not any `fontSize` field.
-- Report progress with the **same stage names** the UI already switches on: `reading`, `parsing`,
-  `detecting`. `ImportProgressCard` picks bar-versus-spinner from those strings.
-- Reuse `runsToBlocks`, `detectChapters`, `resolveBookTitle` and `computeWordCount` **unchanged**.
-  They are pure, already Node-tested, and are the majority of the logic — this is exactly the reuse
-  the file layout was designed for.
-- Produce the same `BookStatus` outcomes, `no-text-layer` and `failed` included, using the same
-  sampling rule as native.
-- Destroy via the loading task (`task.destroy()`), not the document proxy.
-
-Also add **`pdf/PdfParserView.web.tsx` returning `null`**, so the root layout's `<PdfParserView />`
-mounts nothing on web and `react-native-webview` is never imported there.
-
-## 3. PWA plumbing
-
-**`app/+html.tsx`** — expo-router's HTML shell for static web export. It needs:
-
-- `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">` —
-  `viewport-fit=cover` is what makes safe-area insets available at all in standalone mode.
-- `<link rel="manifest" href="/manifest.webmanifest">`
-- `<meta name="apple-mobile-web-app-capable" content="yes">` and
-  `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">`
-- `<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">`
-- Two `<meta name="theme-color">` tags with `media="(prefers-color-scheme: light)"` `#F7F8FA` and
-  `dark` `#0C1412`, matching the splash colours already in `app.json`.
-- A `<style>` block setting `html, body, #root { height: 100%; }` and
-  `body { overscroll-behavior: none; }` — without the latter, the whole page rubber-bands under the
-  reader and the immersive feel is gone.
-- Service worker registration, guarded on `'serviceWorker' in navigator`.
-
-**`public/manifest.webmanifest`** — Expo copies `public/` to the export root.
+Add to `expo.experiments`:
 
 ```json
-{
-  "name": "Chapters", "short_name": "Chapters",
-  "start_url": "/", "scope": "/", "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#F7F8FA", "theme_color": "#142621",
-  "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
-  ]
-}
+"baseUrl": "/chapters"
 ```
 
-**`public/sw.js`** — deliberately simple, and write a comment saying why. The static export
-fingerprints filenames, so a build-time precache list would need generating and would go stale.
-Instead: cache-first for same-origin GETs with runtime population, and a navigation fallback to the
-cached shell so a cold launch works offline after the first visit. Bump a `CACHE_VERSION` constant
-and delete other caches on `activate`.
+This is what rewrites the script and asset URLs inside the exported HTML. Everything else below is
+static content Expo does not rewrite, which is why each has to be done by hand.
 
-**Icons** — extend `scripts/generate-icons.mjs` with the web outputs. Same mark, same geometry, no
-new decisions:
+## 2. `public/.nojekyll` — **the one that breaks everything**
 
-| File | Size | Ground | Notes |
-|---|---|---|---|
-| `public/icons/icon-192.png` | 192 | `#142621` | |
-| `public/icons/icon-512.png` | 512 | `#142621` | |
-| `public/icons/icon-512-maskable.png` | 512 | `#142621` | mark inset to ~72% for the maskable safe zone |
-| `public/icons/apple-touch-icon.png` | 180 | `#142621` | **never transparent** — iOS composites it on black |
+Create an empty file at `public/.nojekyll`.
 
-## 4. Platform gaps to close
+GitHub Pages runs Jekyll over the published directory by default, and **Jekyll excludes every
+directory whose name begins with an underscore**. Expo emits the entire JS bundle into
+`_expo/static/js/web/`. Without this file the HTML is served, every script 404s, and you get a
+blank white page with no useful error. Do not skip it and do not rename it.
 
-- **Haptics reject rather than throw.** Call sites use `try { void Haptics.selectionAsync(); }
-  catch {}`, which does **not** catch an async rejection — on web that becomes an unhandled promise
-  rejection. Add `.catch(() => {})` at every `Haptics.*` call site in `ui/` and `features/`. This is
-  a real fix on native too, wherever haptics are unavailable.
-- **`expo-blur`** — confirm `BlurView` renders on web. If it degrades badly, give `Sheet` a plain
-  `theme.surface.floating` backdrop on web via a platform check; do not redesign the sheet.
-- **Safe-area insets** — verify `useSafeAreaInsets()` returns real values in an iOS standalone PWA.
-  If it returns zeros, the reader's chrome and the settings sheet will sit under the notch and the
-  home indicator. Report what you find rather than guessing at a fix.
-- **`expo-document-picker`** on web returns a blob URI and a name; confirm `ImportProvider` handles
-  that shape.
-- **`expo-splash-screen`** is a no-op on web; the manifest colours cover it. Make sure the
-  `preventAutoHideAsync`/`hideAsync` pair does not throw there.
+## 3. `public/manifest.webmanifest`
 
-## 5. Do not change
+```json
+"start_url": "/chapters/",
+"scope": "/chapters/",
+```
 
-Any component in `ui/` or `features/`, any screen in `app/` beyond adding `+html.tsx`, or any
-existing native behaviour. If a component genuinely cannot render on web without modification, stop
-and report it instead of redesigning it.
+and prefix every icon `src` with `/chapters` — `"/chapters/icons/icon-192.png"` and so on. A
+`start_url` outside the scope makes the app uninstallable, and iOS gives no explanation when it
+refuses.
+
+## 4. `app/+html.tsx`
+
+- `<link rel="manifest" href="/chapters/manifest.webmanifest">`
+- `<link rel="apple-touch-icon" href="/chapters/icons/apple-touch-icon.png">`
+- Service worker registration becomes
+  `navigator.serviceWorker.register('/chapters/sw.js', { scope: '/chapters/' })`.
+  **A worker registered at the root cannot control pages under a sub-path**, so both the file path
+  and the explicit scope have to move together.
+
+Leave the `theme-color` metas and the viewport alone.
+
+## 5. `public/sw.js`
+
+- The navigation fallback must serve `/chapters/index.html`, not `/index.html`.
+- Only handle requests whose path starts with `/chapters/`; anything else on that origin belongs to
+  another project on the same GitHub Pages domain and must be left alone. This matters more than it
+  would on a dedicated host — `<user>.github.io` is shared by every repo the user ever publishes.
+- Bump `CACHE_VERSION`, since the cached shell from a root-hosted build is now wrong.
+
+## 6. `.github/workflows/deploy.yml`
+
+Deploy on every push to `master` (this repo's default branch — not `main`), plus
+`workflow_dispatch`.
+
+- `permissions: { contents: read, pages: write, id-token: write }`
+- `concurrency: { group: "pages", cancel-in-progress: false }`
+- Job: `actions/checkout` → `actions/setup-node` with Node 20 and npm caching → `npm ci` →
+  `npx expo export --platform web` → `actions/configure-pages` → `actions/upload-pages-artifact`
+  with `path: dist` → `actions/deploy-pages`.
+- Pin each action to a major version tag (`@v4`), not a floating branch.
+
+## 7. `README.md`
+
+The repo is public and currently has no README. Write a short one: what Chapters is (a PDF becomes
+a set of short chapter reads), that it runs as an iOS app through Expo Go and as an installable
+PWA, the live URL, and pointers to `docs/components.md` for the design decisions and
+`docs/library.md` for the reusable `design/` and `ui/` layers. Keep it brief and do not oversell it.
+
+## 8. Verify by inspecting the build, not by watching it succeed
+
+The export succeeding proves nothing here — the previous pass exported cleanly for days while
+importing entirely the wrong modules. After `npx expo export --platform web`, confirm in `dist/`:
+
+- `dist/index.html` references `/chapters/_expo/...`, not `/_expo/...`
+- `dist/.nojekyll` exists
+- `dist/manifest.webmanifest` has the `/chapters/` scope and prefixed icon paths
+- `dist/sw.js` contains no bare `'/index.html'`
+
+Report each of these explicitly.
 
 ## Gates
 
-- `npx expo export --platform web` — **must complete**, and this is the real gate for this pass.
-  Report any module-resolution failure in full.
+- `npx expo export --platform web`, followed by the four checks above
 - `npx tsc --noEmit`
 - `npm run lint`
-- `npm run icons` then `node --test --experimental-strip-types test/pdf.test.ts test/design.test.ts test/icons.test.ts`
+- `node --test --experimental-strip-types test/pdf.test.ts test/design.test.ts test/icons.test.ts`
 
 ## Constraints
 
-- **Do not touch anything outside this project directory.** **No package installs** — `pdfjs-dist`,
-  `react-dom` and `react-native-web` are all present. If you believe something else is genuinely
-  required, stop and list it at the end of your response instead of installing it.
+- **Do not touch anything outside this project directory.** Do not run `git`, do not create a
+  remote, do not authenticate anything — the human does all of that.
 - **Do not commit.** Leave the tree dirty for review.
-- `pdfs/` is read-only.
-- Do not upgrade Expo, React Native or any pinned dependency.
+- No package installs.
+- Do not change any component, screen, or the native build's behaviour. `baseUrl` affects the web
+  export only; if you find it altering native output, stop and report it.
