@@ -1,121 +1,172 @@
-# App identity — icon, launch screen, name, bundle identifier
+# Chapters as a PWA — port to web via react-native-web
 
 Read `GEMINI.md` first. No hardcoded colours, sizes, radii or durations in `ui/`, `features/` or
-`app/` — there are tests enforcing it. (The icon generator in `scripts/` is outside those layers and
-is exempt; it is a build tool, not app code.)
+`app/` — there are tests enforcing it.
 
-**The design decisions below were made by the human and are not open.** Implement them exactly.
+**The decisions below were made by the human and are not open.**
 
-Decided:
+- **Port, not rebuild.** One codebase serving iOS and web through `react-native-web`, which is
+  already installed. Do not rewrite any component in HTML.
+- **The PWA is for the iPhone home screen**, as a free alternative to a signed native build. Phone
+  layout throughout; a desktop-specific layout is **not** in scope.
+- **Parsed text only.** The web build never stores the source PDF — only the parsed book. Safari's
+  per-origin quota is finite and a 300MB PDF has no business in it.
+- **Native must keep working exactly as it does.** Every change here is additive or behind a
+  platform split.
 
-- **Mark: stacked rules** — four horizontal bars, two pairs, alternating full and short.
-- **Ground: forest, mark in paper.** Ground `#142621`, mark `#F7F8FA`.
-- **Launch screen: the mark, centred**, on the page colour, with light and dark variants.
-- Display name **`Chapters`**, bundle identifier **`com.manansingal.chapters`**.
+## The shape of the job
 
-## 1. The mark — exact geometry
+Three seams, and nothing else should need touching:
 
-Defined in a 100×100 field and scaled to whatever size is being written. **These numbers are the
-ones that were judged at real size on device — do not adjust them.** All bars have a corner radius
-of 3 in the same units.
+1. Storage — `expo-file-system` does not exist on web.
+2. PDF parsing — the hidden WebView does not exist on web, and does not need to: pdf.js runs
+   natively there.
+3. PWA plumbing — manifest, icons, service worker, HTML shell.
 
-| Bar | x | y | width | height | opacity |
-|---|---|---|---|---|---|
-| 1 | 20 | 28 | 60 | 6 | 1.0 |
-| 2 | 20 | 40 | 44 | 6 | 0.75 |
-| 3 | 20 | 58 | 60 | 6 | 1.0 |
-| 4 | 20 | 70 | 32 | 6 | 0.75 |
+Metro resolves `foo.web.ts` in preference to `foo.ts` when bundling for web. That is the mechanism
+for every split below.
 
-The 12-unit gap inside each pair and the 18-unit gap between pairs are what make it read as two
-blocks of text rather than four loose lines. Keep both.
+## 1. The storage seam — `storage/kv.ts` + `storage/kv.web.ts`
 
-## 2. `scripts/generate-icons.mjs` — a committed generator, not mystery binaries
+Every `expo-file-system` call in `storage/` reduces to six operations. Introduce one module for them
+and put the four existing storage files on top of it.
 
-There is no image tooling on this machine and `sharp` is not installed. **Write a dependency-free
-Node script** that rasterises the mark and writes real PNGs using only built-in modules
-(`node:zlib`, `node:fs`).
+```ts
+// storage/kv.ts — the contract, implemented twice
+export async function readText(key: string): Promise<string | null>;
+export async function writeText(key: string, value: string): Promise<void>;
+export async function exists(key: string): Promise<boolean>;
+export async function remove(key: string): Promise<void>;
+export async function removePrefix(prefix: string): Promise<void>;
+export async function copyInto(key: string, sourceUri: string): Promise<string | null>;
+```
 
-Requirements:
+- **`storage/kv.ts` (native)** wraps `expo-file-system/legacy` exactly as the current code does:
+  keys are paths relative to `documentDirectory`, `writeText` creates intermediate directories,
+  `copyInto` copies a file in and returns its new URI.
+- **`storage/kv.web.ts`** is IndexedDB — one database, one object store, the key string used
+  verbatim. Write it against the raw IndexedDB API; **do not add a dependency**. `removePrefix`
+  iterates keys with `IDBKeyRange.bound(prefix, prefix + '￿')`. **`copyInto` returns `null`** —
+  the web build stores no source PDFs, and that is the decision, not a limitation to work around.
+- Rewrite `storage/files.ts`, `library.ts`, `prefs.ts` and `settings.ts` to use `kv` and **import
+  `expo-file-system` nowhere**. Keep every exported function signature and all existing behaviour —
+  including `saveReadingPosition`'s promise-chain serialisation and its monotonic `Math.max`.
+- `saveBookSource` returns whatever `copyInto` gives, so on web `book.sourceUri` ends up empty.
+  **Grep for every read of `sourceUri` and confirm nothing depends on it** before assuming that is
+  safe; report anything that does.
 
-- Draw into an RGBA pixel buffer: fill the ground, then composite each rounded bar over it with its
-  opacity. Rounded corners come from a rounded-rectangle coverage test.
-- **Anti-alias by supersampling** — render at 4× the target and box-filter down. Without it the bar
-  ends and corners will be visibly jagged at 1024px.
-- Encode PNG by hand: signature, `IHDR` (8-bit RGBA, colour type 6), `IDAT` of zlib-deflated
-  scanlines each prefixed with filter byte 0, then `IEND`. CRC32 per chunk.
-- Support a transparent ground (alpha 0) for the variants that need one.
-- Expose it as an npm script: `"icons": "node scripts/generate-icons.mjs"`.
+## 2. The parsing seam — `pdf/parse.web.ts`
 
-Files it must write, all into `assets/images/`:
+`pdf/parse.ts` orchestrates the WebView bridge. Rather than surgery on it, add a whole-module web
+replacement exporting the same public surface, so `import { parsePdf } from '../pdf'` is unchanged
+at every call site.
 
-| File | Size | Ground | Mark |
+`pdf/parse.web.ts` must:
+
+- Import `pdfjs-dist` directly — it is already a dependency. Set `GlobalWorkerOptions.workerSrc`
+  to the bundled worker. **If the worker cannot be wired up under Metro, stop and say so** rather
+  than silently falling back to pdf.js's main-thread fake worker: parsing a large book on the main
+  thread freezes the very progress UI that is meant to be reassuring.
+- Read the picked file as an `ArrayBuffer` (`fetch(uri).then(r => r.arrayBuffer())` works for the
+  blob URIs the web document picker returns) and hand it straight to `getDocument`.
+- Walk pages, collect `TextRun`s in the same shape the native path produces — including font size
+  from the transform matrix as `sqrt(b² + d²)`, not any `fontSize` field.
+- Report progress with the **same stage names** the UI already switches on: `reading`, `parsing`,
+  `detecting`. `ImportProgressCard` picks bar-versus-spinner from those strings.
+- Reuse `runsToBlocks`, `detectChapters`, `resolveBookTitle` and `computeWordCount` **unchanged**.
+  They are pure, already Node-tested, and are the majority of the logic — this is exactly the reuse
+  the file layout was designed for.
+- Produce the same `BookStatus` outcomes, `no-text-layer` and `failed` included, using the same
+  sampling rule as native.
+- Destroy via the loading task (`task.destroy()`), not the document proxy.
+
+Also add **`pdf/PdfParserView.web.tsx` returning `null`**, so the root layout's `<PdfParserView />`
+mounts nothing on web and `react-native-webview` is never imported there.
+
+## 3. PWA plumbing
+
+**`app/+html.tsx`** — expo-router's HTML shell for static web export. It needs:
+
+- `<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">` —
+  `viewport-fit=cover` is what makes safe-area insets available at all in standalone mode.
+- `<link rel="manifest" href="/manifest.webmanifest">`
+- `<meta name="apple-mobile-web-app-capable" content="yes">` and
+  `<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">`
+- `<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">`
+- Two `<meta name="theme-color">` tags with `media="(prefers-color-scheme: light)"` `#F7F8FA` and
+  `dark` `#0C1412`, matching the splash colours already in `app.json`.
+- A `<style>` block setting `html, body, #root { height: 100%; }` and
+  `body { overscroll-behavior: none; }` — without the latter, the whole page rubber-bands under the
+  reader and the immersive feel is gone.
+- Service worker registration, guarded on `'serviceWorker' in navigator`.
+
+**`public/manifest.webmanifest`** — Expo copies `public/` to the export root.
+
+```json
+{
+  "name": "Chapters", "short_name": "Chapters",
+  "start_url": "/", "scope": "/", "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F7F8FA", "theme_color": "#142621",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
+```
+
+**`public/sw.js`** — deliberately simple, and write a comment saying why. The static export
+fingerprints filenames, so a build-time precache list would need generating and would go stale.
+Instead: cache-first for same-origin GETs with runtime population, and a navigation fallback to the
+cached shell so a cold launch works offline after the first visit. Bump a `CACHE_VERSION` constant
+and delete other caches on `activate`.
+
+**Icons** — extend `scripts/generate-icons.mjs` with the web outputs. Same mark, same geometry, no
+new decisions:
+
+| File | Size | Ground | Notes |
 |---|---|---|---|
-| `icon.png` | 1024 | `#142621` | `#F7F8FA` |
-| `icon-dark.png` | 1024 | `#0C1412` | `#F7F8FA` |
-| `icon-tinted.png` | 1024 | `#1C1C1C` | `#EDEDED` |
-| `android-icon-foreground.png` | 1024 | transparent | `#F7F8FA` |
-| `android-icon-background.png` | 1024 | `#142621` | — (ground only, no bars) |
-| `android-icon-monochrome.png` | 1024 | transparent | `#FFFFFF` |
-| `splash-icon.png` | 512 | transparent | `#142621` |
-| `splash-icon-dark.png` | 512 | transparent | `#F7F8FA` |
-| `favicon.png` | 48 | `#142621` | `#F7F8FA` |
+| `public/icons/icon-192.png` | 192 | `#142621` | |
+| `public/icons/icon-512.png` | 512 | `#142621` | |
+| `public/icons/icon-512-maskable.png` | 512 | `#142621` | mark inset to ~72% for the maskable safe zone |
+| `public/icons/apple-touch-icon.png` | 180 | `#142621` | **never transparent** — iOS composites it on black |
 
-Notes on two of them. The **tinted** variant is greyscale by design — iOS applies its own tint to it,
-so shipping colour there produces a muddy result. The **Android foreground** must keep the mark
-well inside the safe area; Android masks adaptive icons aggressively, so inset the whole 100-unit
-field to about 72% of the canvas and centre it.
+## 4. Platform gaps to close
 
-## 3. `app.json`
+- **Haptics reject rather than throw.** Call sites use `try { void Haptics.selectionAsync(); }
+  catch {}`, which does **not** catch an async rejection — on web that becomes an unhandled promise
+  rejection. Add `.catch(() => {})` at every `Haptics.*` call site in `ui/` and `features/`. This is
+  a real fix on native too, wherever haptics are unavailable.
+- **`expo-blur`** — confirm `BlurView` renders on web. If it degrades badly, give `Sheet` a plain
+  `theme.surface.floating` backdrop on web via a platform check; do not redesign the sheet.
+- **Safe-area insets** — verify `useSafeAreaInsets()` returns real values in an iOS standalone PWA.
+  If it returns zeros, the reader's chrome and the settings sheet will sit under the notch and the
+  home indicator. Report what you find rather than guessing at a fix.
+- **`expo-document-picker`** on web returns a blob URI and a name; confirm `ImportProvider` handles
+  that shape.
+- **`expo-splash-screen`** is a no-op on web; the manifest colours cover it. Make sure the
+  `preventAutoHideAsync`/`hideAsync` pair does not throw there.
 
-- `name`: `Chapters` (slug stays `chapters` — changing it would orphan the EAS project).
-- `ios.bundleIdentifier`: `com.manansingal.chapters`.
-- `ios.icon` becomes the object form so iOS 18 gets all three variants:
-  `{ "light": "./assets/images/icon.png", "dark": "./assets/images/icon-dark.png", "tinted": "./assets/images/icon-tinted.png" }`.
-  Keep the top-level `icon` pointing at `icon.png` as the fallback.
-- `android.adaptiveIcon.backgroundColor`: `#142621`.
-- `expo-splash-screen` plugin config: `image` `./assets/images/splash-icon.png`, `imageWidth` 160,
-  `resizeMode` `contain`, `backgroundColor` `#F7F8FA`, and a `dark` block with
-  `image` `./assets/images/splash-icon-dark.png` and `backgroundColor` `#0C1412`.
+## 5. Do not change
 
-The splash colours are the app's real page colours in each theme, so the launch screen and the first
-frame of the app are the same ground.
-
-## 4. Delete the scaffolding
-
-Remove `assets/images/react-logo.png`, `react-logo@2x.png`, `react-logo@3x.png` and
-`partial-react-logo.png`. **Grep the whole repo for each filename before deleting** and fix any
-import you find — they came from the `create-expo-app` template and should have no callers, but
-verify rather than assume.
-
-## 5. Test — `test/icons.test.ts`
-
-One test, guarding the hand-written PNG encoder, which is the only part of this that can fail
-silently:
-
-- Read `assets/images/icon.png`, assert the 8-byte PNG signature, then parse the `IHDR` chunk and
-  assert width 1024, height 1024, bit depth 8 and colour type 6.
-- Do the same for `splash-icon.png` at 512.
-
-If the encoder produces a corrupt file, the build will fail with something unhelpful much later;
-this catches it here.
-
-## 6. Do not change
-
-Anything under `app/`, `features/`, `ui/`, `design/`, `pdf/` or `storage/`. This pass touches only
-`assets/`, `scripts/`, `app.json`, `package.json` and `test/`.
+Any component in `ui/` or `features/`, any screen in `app/` beyond adding `+html.tsx`, or any
+existing native behaviour. If a component genuinely cannot render on web without modification, stop
+and report it instead of redesigning it.
 
 ## Gates
 
-- `npm run icons` — must produce every file in the table above.
+- `npx expo export --platform web` — **must complete**, and this is the real gate for this pass.
+  Report any module-resolution failure in full.
 - `npx tsc --noEmit`
 - `npm run lint`
-- `node --test --experimental-strip-types test/pdf.test.ts test/design.test.ts test/icons.test.ts`
+- `npm run icons` then `node --test --experimental-strip-types test/pdf.test.ts test/design.test.ts test/icons.test.ts`
 
 ## Constraints
 
-- **Do not touch anything outside this project directory.** No package installs — the generator must
-  work with Node built-ins alone. If you believe a dependency is unavoidable, stop and say so at the
-  end of your response instead of installing it.
+- **Do not touch anything outside this project directory.** **No package installs** — `pdfjs-dist`,
+  `react-dom` and `react-native-web` are all present. If you believe something else is genuinely
+  required, stop and list it at the end of your response instead of installing it.
 - **Do not commit.** Leave the tree dirty for review.
 - `pdfs/` is read-only.
-- Do not upgrade Expo, React Native or any pinned dependency. SDK 54 is a hard constraint.
+- Do not upgrade Expo, React Native or any pinned dependency.
