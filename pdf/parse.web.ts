@@ -43,25 +43,35 @@ if (streamProto && !streamProto[Symbol.asyncIterator]) {
   streamProto.values = streamProto[Symbol.asyncIterator];
 }
 
-// pdf.js is loaded lazily, and the import above is type-only, because `pdfjs-dist` touches
-// DOMMatrix at module scope. Expo pre-renders every route in Node during a static web export,
-// where that global does not exist — a top-level import fails the build outright. Nothing here is
-// needed until the reader actually opens a PDF, so the cost of deferring it is zero.
-let pdfjsPromise: Promise<typeof PdfjsLib> | null = null;
+// pdf.js is pulled in through an inline require, and deliberately not through either of the two
+// obvious alternatives.
+//
+// A top-level import fails the build: `web.output: "static"` makes Expo pre-render every route in
+// Node, and pdfjs-dist touches DOMMatrix at module scope, which does not exist there. Static
+// rendering cannot simply be turned off either — `app/+html.tsx` only applies under it, and
+// without that shell the app has no manifest link, no apple-touch-icon, no viewport-fit=cover and
+// no service worker, i.e. it stops being installable.
+//
+// A dynamic import() avoids the Node problem but makes Metro emit an async chunk, and requiring a
+// module out of that chunk failed at runtime on the deployed sub-path ("unknown module 1041").
+//
+// An inline require resolves from the same bundle — no chunk, no chunk loader — and is not
+// evaluated until a PDF is actually opened, so Node never sees it.
+declare const require: (moduleId: string) => unknown;
 
-async function loadPdfjs(): Promise<typeof PdfjsLib> {
-  if (!pdfjsPromise) {
-    pdfjsPromise = import('pdfjs-dist').then((lib) => {
-      // The worker is supplied as a Blob URL built from the inlined worker source, which avoids
-      // asking Metro to bundle a worker entry point at all.
-      if (typeof window !== 'undefined' && !lib.GlobalWorkerOptions.workerSrc) {
-        const workerBlob = new Blob([PDF_WORKER_JS_SOURCE], { type: 'application/javascript' });
-        lib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(workerBlob);
-      }
-      return lib;
-    });
+let pdfjs: typeof PdfjsLib | null = null;
+
+function getPdfjs(): typeof PdfjsLib {
+  if (!pdfjs) {
+    pdfjs = require('pdfjs-dist') as typeof PdfjsLib;
+    // The worker is a Blob URL built from the inlined worker source, which avoids asking Metro to
+    // bundle a worker entry point at all.
+    if (typeof window !== 'undefined' && !pdfjs.GlobalWorkerOptions.workerSrc) {
+      const workerBlob = new Blob([PDF_WORKER_JS_SOURCE], { type: 'application/javascript' });
+      pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(workerBlob);
+    }
   }
-  return pdfjsPromise;
+  return pdfjs;
 }
 
 async function processOutline(
@@ -112,7 +122,7 @@ export async function parsePdf(
   const pdfData = new Uint8Array(buf);
   onProgress?.('reading', 100);
 
-  const pdfjsLib = await loadPdfjs();
+  const pdfjsLib = getPdfjs();
   const loadingTask = pdfjsLib.getDocument({
     data: pdfData,
   });

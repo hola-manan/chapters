@@ -5,7 +5,7 @@
 // and a navigation fallback to the cached HTML shell so a cold launch works offline
 // after the first visit.
 
-const CACHE_VERSION = 'chapters-v2';
+const CACHE_VERSION = 'chapters-v3';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
