@@ -27,7 +27,7 @@ import {
 import { displayTitle } from '../../../pdf';
 import type { Book } from '../../../pdf/types';
 import { getBook, getReadingPosition, saveReadingPosition } from '../../../storage';
-import { Text, useAutoHide, useReadingSize, useTheme, useThemeMode } from '../../../ui';
+import { EmptyState, SkeletonText, useAutoHide, useReadingSize, useTheme, useThemeMode } from '../../../ui';
 
 // Relative pinch travel that commits one size step. Small enough to feel responsive, large enough
 // that an unsteady two-finger rest does not trip it.
@@ -35,7 +35,21 @@ const PINCH_STEP_UP = 1.1;
 const PINCH_STEP_DOWN = 0.91;
 
 export default function ReaderScreen() {
-  const { id, chapter: chapterId } = useLocalSearchParams<{ id: string; chapter: string }>();
+  const {
+    id,
+    chapter: chapterId,
+    title: initialTitle,
+    chapterNumber: initialChapterNumStr,
+    chapterCount: initialChapterCountStr,
+    bookTitle: initialBookTitle,
+  } = useLocalSearchParams<{
+    id: string;
+    chapter: string;
+    title?: string;
+    chapterNumber?: string;
+    chapterCount?: string;
+    bookTitle?: string;
+  }>();
   const router = useRouter();
   const flatListRef = useRef<FlatList>(null);
   const transitionRef = useRef<ChapterTransitionRef>(null);
@@ -171,10 +185,44 @@ export default function ReaderScreen() {
   );
 
   if (!book || currentIndex === null || !book.chapters[currentIndex]) {
+    const initialChapterNumber = initialChapterNumStr
+      ? parseInt(initialChapterNumStr, 10)
+      : undefined;
+    const initialChapterCount = initialChapterCountStr
+      ? parseInt(initialChapterCountStr, 10)
+      : undefined;
+
     return (
       <View style={[styles.container, { backgroundColor: theme.surface.page }]}>
-        <View style={styles.emptyContainer}>
-          <Text tone="secondary">Loading chapter...</Text>
+        <ReaderChrome
+          visibility={autoHide.visibility}
+          isVisible={autoHide.isVisible}
+          bookTitle={initialBookTitle ?? ''}
+          onBack={() => router.replace(`/book/`)}
+        />
+        <View
+          style={[
+            styles.listContainer,
+            {
+              paddingTop: insets.top + space.xxxl,
+              paddingBottom: space.xxl + insets.bottom,
+            },
+          ]}
+        >
+          {initialTitle ? (
+            <>
+              <View style={styles.headerContainer}>
+                <ChapterOpening
+                  title={initialTitle}
+                  chapterNumber={initialChapterNumber}
+                  chapterCount={initialChapterCount}
+                />
+              </View>
+              <SkeletonText lines={6} />
+            </>
+          ) : (
+            <SkeletonText lines={6} />
+          )}
         </View>
       </View>
     );
@@ -305,13 +353,13 @@ export default function ReaderScreen() {
                 />
               }
               ListEmptyComponent={
-                <View style={styles.emptyContainer}>
-                  <Text tone="secondary" align="center">
-                    {book.status === 'no-text-layer'
+                <EmptyState
+                  message={
+                    book.status === 'no-text-layer'
                       ? 'No extractable text in this chapter (scanned document).'
-                      : 'No text blocks found in this chapter.'}
-                  </Text>
-                </View>
+                      : 'No text blocks found in this chapter.'
+                  }
+                />
               }
               initialScrollIndex={
                 initialIndex && initialIndex < displayBlocks.length ? initialIndex : undefined
@@ -361,10 +409,5 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     marginBottom: space.lg,
-  },
-  emptyContainer: {
-    paddingVertical: space.xxl,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

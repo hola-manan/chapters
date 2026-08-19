@@ -79,7 +79,12 @@ export default function LibraryScreen() {
       <LibraryFeed
         books={books}
         progressMap={progressMap}
-        onSelectBook={(book) => router.push(`/book/${book.id}`)}
+        onSelectBook={(book) =>
+          router.push({
+            pathname: '/book/[id]',
+            params: { id: book.id, title: book.title },
+          })
+        }
         onDeleteBook={handleDeleteBook}
         onImportPress={startImport}
         importState={importState}

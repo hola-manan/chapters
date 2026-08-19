@@ -3,7 +3,7 @@ import { FlatList, StyleSheet, View } from 'react-native';
 import { space } from '../../design';
 import type { Book } from '../../pdf/types';
 import type { ImportState } from '../import';
-import { Text, VStack } from '../../ui';
+import { EmptyState, VStack } from '../../ui';
 import { BookCard } from './BookCard';
 import { ImportProgressCard } from './ImportProgressCard';
 import { ImportTile } from './ImportTile';
@@ -61,11 +61,10 @@ export function LibraryFeed({
       return null;
     }
     return (
-      <View style={styles.emptyContainer}>
-        <Text variant="body" tone="secondary" align="center">
-          Your library is empty. Import a PDF to start reading.
-        </Text>
-      </View>
+      <EmptyState
+        title="Nothing here yet."
+        message="Chapters turns a PDF into a handful of short reads."
+      />
     );
   };
 
@@ -94,11 +93,5 @@ const styles = StyleSheet.create({
   listContent: {
     padding: space.lg,
     gap: space.md,
-  },
-  emptyContainer: {
-    paddingVertical: space.xxl,
-    paddingHorizontal: space.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

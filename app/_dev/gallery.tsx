@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { radius, space } from '../../design/index.ts';
 import {
   BookCard,
@@ -15,7 +14,9 @@ import {
 import type { Block, Book } from '../../pdf/types.ts';
 import { listBooks } from '../../storage/index.ts';
 import {
+  EmptyState,
   HStack,
+  Icon,
   IconButton,
   ProgressBar,
   PressableCard,
@@ -25,6 +26,7 @@ import {
   ReadingText,
   SegmentedControl,
   Sheet,
+  SkeletonText,
   Spinner,
   Surface,
   TapRegion,
@@ -44,6 +46,8 @@ const FALLBACK: string[] = [
 
 const VARIANTS = ['title1', 'title2', 'title3', 'body', 'subhead', 'footnote', 'caption'] as const;
 const WEIGHTS = ['regular', 'medium', 'semibold'] as const;
+const ICON_BESIDE_TEXT_SIZES = ['caption', 'footnote', 'subhead', 'body', 'title3'] as const;
+const ICON_STANDALONE_SIZES = ['sm', 'md', 'lg'] as const;
 
 const GAP_STEPS = [
   { key: 'none', px: 0 },
@@ -201,6 +205,75 @@ function GalleryContent({
               </Text>
             </View>
           </View>
+        </Section>
+
+        {/* Section 2b: Icon Primitives */}
+        <Section title="Icon Sizes & Color Tones" borderBottomColor={theme.border.subtle}>
+          <VStack gap="xl">
+            {/* Sizes beside matching text variants */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                BESIDE TEXT (OPTICALLY CORRECTED)
+              </Text>
+              <VStack gap="sm">
+                {ICON_BESIDE_TEXT_SIZES.map((s) => (
+                  <HStack key={s} align="center" gap="sm">
+                    <Icon name="book-outline" size={s} />
+                    <Text variant={s}>
+                      {`size="${s}" beside Text variant="${s}"`}
+                    </Text>
+                  </HStack>
+                ))}
+              </VStack>
+            </VStack>
+
+            {/* Standalone sizes */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                STANDALONE SIZES
+              </Text>
+              <HStack gap="lg" align="center">
+                {ICON_STANDALONE_SIZES.map((s) => (
+                  <VStack key={s} gap="xs" align="center">
+                    <Icon name="bookmark-outline" size={s} />
+                    <Text variant="caption" tone="secondary">
+                      {`"${s}"`}
+                    </Text>
+                  </VStack>
+                ))}
+              </HStack>
+            </VStack>
+
+            {/* Color tones */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="tertiary" weight="semibold">
+                COLOR TONES
+              </Text>
+              <HStack gap="lg" align="center">
+                {(['primary', 'secondary', 'tertiary', 'accent'] as const).map((t) => (
+                  <VStack key={t} gap="xs" align="center">
+                    <Icon name="bookmark" size="lg" tone={t} />
+                    <Text variant="caption" tone="secondary">
+                      {t}
+                    </Text>
+                  </VStack>
+                ))}
+                <View
+                  style={[
+                    styles.onAccentIconContainer,
+                    { backgroundColor: theme.accent.base },
+                  ]}
+                >
+                  <VStack gap="xs" align="center">
+                    <Icon name="bookmark" size="lg" tone="onAccent" />
+                    <Text variant="caption" tone="onAccent">
+                      onAccent
+                    </Text>
+                  </VStack>
+                </View>
+              </HStack>
+            </VStack>
+          </VStack>
         </Section>
 
         {/* Section 3: Truncation & Flex */}
@@ -571,7 +644,7 @@ function GalleryContent({
                   onPress={() => setIconPressCount((i) => i + 1)}
                   accessibilityLabel="Bookmark chapter"
                 >
-                  <Ionicons name="bookmark-outline" size={24} color={theme.text.primary} />
+                  <Icon name="bookmark-outline" size="lg" />
                 </IconButton>
                 <Text variant="footnote" tone="secondary">
                   {`Icon Taps: ${iconPressCount} (Expanded slop target)`}
@@ -1055,6 +1128,89 @@ function GalleryContent({
             </VStack>
           </VStack>
         </Section>
+
+        {/* Section 15: Skeleton Loading Placeholders */}
+        <Section title="Skeleton Loading Placeholders (delayMs={0})" borderBottomColor={theme.border.subtle}>
+          <VStack gap="xl">
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                1 LINE SKELETON
+              </Text>
+              <View
+                style={[
+                  styles.cardScaffolding,
+                  { backgroundColor: theme.surface.raised, borderColor: theme.border.subtle },
+                ]}
+              >
+                <SkeletonText lines={1} delayMs={0} />
+              </View>
+            </VStack>
+
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                3 LINES SKELETON (DEFAULT)
+              </Text>
+              <View
+                style={[
+                  styles.cardScaffolding,
+                  { backgroundColor: theme.surface.raised, borderColor: theme.border.subtle },
+                ]}
+              >
+                <SkeletonText lines={3} delayMs={0} />
+              </View>
+            </VStack>
+
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                6 LINES SKELETON
+              </Text>
+              <View
+                style={[
+                  styles.cardScaffolding,
+                  { backgroundColor: theme.surface.raised, borderColor: theme.border.subtle },
+                ]}
+              >
+                <SkeletonText lines={6} delayMs={0} />
+              </View>
+            </VStack>
+          </VStack>
+        </Section>
+
+        {/* Section 16: Empty States */}
+        <Section title="EmptyState Configurations" borderBottomColor={theme.border.subtle}>
+          <VStack gap="xl">
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                1. LIBRARY EMPTY STATE (TITLE + MESSAGE)
+              </Text>
+              <View
+                style={[
+                  styles.cardScaffolding,
+                  { backgroundColor: theme.surface.raised, borderColor: theme.border.subtle },
+                ]}
+              >
+                <EmptyState
+                  title="Nothing here yet."
+                  message="Chapters turns a PDF into a handful of short reads."
+                />
+              </View>
+            </VStack>
+
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                2. CHAPTER EMPTY STATE (MESSAGE ONLY)
+              </Text>
+              <View
+                style={[
+                  styles.cardScaffolding,
+                  { backgroundColor: theme.surface.raised, borderColor: theme.border.subtle },
+                ]}
+              >
+                <EmptyState message="No text blocks found in this chapter." />
+              </View>
+            </VStack>
+          </VStack>
+        </Section>
       </ScrollView>
 
       {/* Gallery Sample Sheet */}
@@ -1150,6 +1306,10 @@ const styles = StyleSheet.create({
     padding: space[16],
     borderRadius: radius.md,
     marginTop: space[8],
+  },
+  onAccentIconContainer: {
+    padding: space[8],
+    borderRadius: radius.md,
   },
   truncationCard: {
     flexDirection: 'row',

@@ -14,4 +14,5 @@ export * from './IconButton';
 export * from './TextLink';
 export * from './TapRegion';
 export * from './SegmentedControl';
+export * from './Icon';
 

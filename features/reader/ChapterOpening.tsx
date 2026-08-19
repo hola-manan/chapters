@@ -5,8 +5,8 @@ import { Text, useTheme } from '../../ui';
 
 export type ChapterOpeningProps = {
   title: string; // already passed through displayTitle()
-  chapterNumber: number; // 1-based
-  chapterCount: number;
+  chapterNumber?: number; // 1-based
+  chapterCount?: number;
   testID?: string;
 };
 
@@ -18,11 +18,13 @@ export function ChapterOpening({ title, chapterNumber, chapterCount, testID }: C
 
   return (
     <View testID={testID}>
-      <View style={styles.eyebrow}>
-        <Text variant="caption" weight="semibold" tone="accent">
-          {`CHAPTER ${chapterNumber} OF ${chapterCount}`}
-        </Text>
-      </View>
+      {chapterNumber !== undefined && chapterCount !== undefined ? (
+        <View style={styles.eyebrow}>
+          <Text variant="caption" weight="semibold" tone="accent">
+            {`CHAPTER ${chapterNumber} OF ${chapterCount}`}
+          </Text>
+        </View>
+      ) : null}
 
       <Text variant="title1" weight="semibold">
         {title}

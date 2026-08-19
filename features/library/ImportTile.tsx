@@ -1,8 +1,7 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { space } from '../../design';
-import { HStack, PressableCard, Surface, Text, useTheme, VStack } from '../../ui';
+import { HStack, Icon, PressableCard, Surface, Text } from '../../ui';
 
 export type ImportTileProps = {
   onPress?: () => void;
@@ -19,7 +18,6 @@ export function ImportTile({
   isImporting = false,
   testID,
 }: ImportTileProps) {
-  const theme = useTheme();
   const isDisabled = disabled || isImporting;
 
   return (
@@ -32,7 +30,7 @@ export function ImportTile({
       <Surface elevation={1} border>
         <View style={styles.container}>
           <HStack align="center" justify="center" gap="sm">
-            <Ionicons name="add-circle-outline" size={20} color={theme.accent.base} />
+            <Icon name="add-circle-outline" size="body" tone="accent" />
             <Text variant="body" weight="semibold" tone="accent">
               Import a PDF
             </Text>

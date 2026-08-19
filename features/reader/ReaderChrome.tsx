@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { LayoutChangeEvent, StyleSheet, View } from 'react-native';
 import Animated, {
@@ -10,7 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { space } from '../../design';
-import { HStack, IconButton, Text, useTheme } from '../../ui';
+import { HStack, Icon, IconButton, Text, useTheme } from '../../ui';
 
 export type ReaderChromeProps = {
   visibility: SharedValue<number>;
@@ -74,14 +73,14 @@ export function ReaderChrome({
       <View style={styles.content}>
         <HStack align="center" gap="sm">
           <IconButton onPress={onBack} accessibilityLabel="Back to contents">
-            <Ionicons name="chevron-back" size={24} color={theme.text.primary} />
+            <Icon name="chevron-back" size="lg" />
           </IconButton>
           <Text variant="footnote" tone="secondary" numberOfLines={1} flex>
             {bookTitle}
           </Text>
           {onOpenSettings && (
             <IconButton onPress={onOpenSettings} accessibilityLabel="Reader settings">
-              <Ionicons name="text-outline" size={22} color={theme.text.primary} />
+              <Icon name="text-outline" size="md" />
             </IconButton>
           )}
         </HStack>
