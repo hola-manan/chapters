@@ -5,7 +5,7 @@
 // and a navigation fallback to the cached HTML shell so a cold launch works offline
 // after the first visit.
 
-const CACHE_VERSION = 'chapters-v1';
+const CACHE_VERSION = 'chapters-v2';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -38,8 +38,12 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
 
-  // Only cache same-origin assets
+  // Only cache same-origin assets under /chapters/
   if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  if (!url.pathname.startsWith('/chapters/')) {
     return;
   }
 
@@ -57,9 +61,9 @@ self.addEventListener('fetch', (event) => {
         .catch(async () => {
           const cached = await caches.match(request);
           if (cached) return cached;
-          const rootFallback = await caches.match('/');
+          const rootFallback = await caches.match('/chapters/');
           if (rootFallback) return rootFallback;
-          return caches.match('/index.html');
+          return caches.match('/chapters/index.html');
         })
     );
     return;

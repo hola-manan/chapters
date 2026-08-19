@@ -9,10 +9,10 @@ export default function Root({ children }: PropsWithChildren) {
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="manifest" href="/chapters/manifest.webmanifest" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" href="/chapters/icons/apple-touch-icon.png" />
         <meta name="theme-color" media="(prefers-color-scheme: light)" content={color.neutrals.paper} />
         <meta name="theme-color" media="(prefers-color-scheme: dark)" content={color.darkGround[900]} />
         <ScrollViewStyleReset />
@@ -29,7 +29,7 @@ export default function Root({ children }: PropsWithChildren) {
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').catch(function() {});
+                  navigator.serviceWorker.register('/chapters/sw.js', { scope: '/chapters/' }).catch(function() {});
                 });
               }
             `,
