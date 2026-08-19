@@ -1,24 +1,19 @@
-import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import { Link, useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
-import { radius, space } from '../design';
-import { LibraryFeed } from '../features';
-import { parsePdf } from '../pdf';
+import { space } from '../design';
+import { LibraryFeed, useImport } from '../features';
 import type { Book } from '../pdf/types';
-import { addBook, computeBookProgress, getBookPrefs, listBooks, removeBook } from '../storage';
-import { Text, useTheme, VStack } from '../ui';
+import { computeBookProgress, getBookPrefs, listBooks, removeBook } from '../storage';
+import { Text, useTheme } from '../ui';
 
 export default function LibraryScreen() {
   const router = useRouter();
   const theme = useTheme();
   const [books, setBooks] = useState<Book[]>([]);
   const [progressMap, setProgressMap] = useState<Record<string, number>>({});
-  const [isParsing, setIsParsing] = useState(false);
-  const [progressStage, setProgressStage] = useState('');
-  const [progressPct, setProgressPct] = useState(0);
-  const [errorMessage, setErrorMessage] = useState('');
+  const { state: importState, startImport, dismissError, lastCompletedAt } = useImport();
 
   const loadLibrary = async () => {
     const list = await listBooks();
@@ -34,60 +29,13 @@ export default function LibraryScreen() {
 
   useEffect(() => {
     loadLibrary();
-  }, []);
+  }, [lastCompletedAt]);
 
   useFocusEffect(
     useCallback(() => {
       loadLibrary();
     }, [])
   );
-
-  const handlePickDocument = async () => {
-    try {
-      setErrorMessage('');
-      const res = await DocumentPicker.getDocumentAsync({
-        type: 'application/pdf',
-        copyToCacheDirectory: true,
-      });
-
-      if (res.canceled || !res.assets || res.assets.length === 0) {
-        return;
-      }
-
-      const asset = res.assets[0];
-      setIsParsing(true);
-      setProgressStage('reading');
-      setProgressPct(0);
-
-      const parsedBook = await parsePdf(asset.uri, (stage, pct) => {
-        setProgressStage(stage);
-        setProgressPct(pct);
-      });
-
-      // Only readable books enter the library. A PDF with no text layer cannot be
-      // reflowed at all, so it is rejected at import rather than added as a book
-      // that can never be opened.
-      if (parsedBook.status === 'no-text-layer') {
-        setErrorMessage(
-          `“${parsedBook.title}” is scanned page images, not text. There is nothing to display.`
-        );
-        return;
-      }
-      if (parsedBook.status === 'failed') {
-        setErrorMessage(
-          `“${parsedBook.title}” could not be read.${parsedBook.error ? ` ${parsedBook.error}` : ''}`
-        );
-        return;
-      }
-
-      await addBook(parsedBook);
-      await loadLibrary();
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to import PDF');
-    } finally {
-      setIsParsing(false);
-    }
-  };
 
   const handleDeleteBook = (book: Book) => {
     try {
@@ -114,25 +62,16 @@ export default function LibraryScreen() {
   };
 
   const header = (
-    <VStack gap="xs">
-      <View style={styles.headerRow}>
-        <Text variant="title1" weight="semibold" flex>
-          Library
+    <View style={styles.headerRow}>
+      <Text variant="title1" weight="semibold" flex>
+        Library
+      </Text>
+      <Link href="/_dev/gallery">
+        <Text variant="caption" tone="tertiary">
+          Dev Gallery
         </Text>
-        <Link href="/_dev/gallery">
-          <Text variant="caption" tone="tertiary">
-            Dev Gallery
-          </Text>
-        </Link>
-      </View>
-      {errorMessage ? (
-        <View style={[styles.errorBox, { borderColor: theme.border.strong }]}>
-          <Text variant="footnote" tone="secondary">
-            {errorMessage}
-          </Text>
-        </View>
-      ) : null}
-    </VStack>
+      </Link>
+    </View>
   );
 
   return (
@@ -142,10 +81,9 @@ export default function LibraryScreen() {
         progressMap={progressMap}
         onSelectBook={(book) => router.push(`/book/${book.id}`)}
         onDeleteBook={handleDeleteBook}
-        onImportPress={handlePickDocument}
-        isImporting={isParsing}
-        importStage={progressStage}
-        importPct={progressPct}
+        onImportPress={startImport}
+        importState={importState}
+        onDismissImportError={dismissError}
         headerComponent={header}
       />
     </View>
@@ -162,11 +100,5 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingTop: space.xl,
     paddingBottom: space.xs,
-  },
-  errorBox: {
-    padding: space.md,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    marginTop: space.xs,
   },
 });

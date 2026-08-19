@@ -8,6 +8,7 @@ import {
   ChapterOpening,
   GeneratedCover,
   HeadingBlock,
+  ImportProgressCard,
   ImportTile,
   ParagraphBlock,
 } from '../../features/index.ts';
@@ -16,6 +17,7 @@ import { listBooks } from '../../storage/index.ts';
 import {
   HStack,
   IconButton,
+  ProgressBar,
   PressableCard,
   PressableRow,
   ReadingInitial,
@@ -23,12 +25,14 @@ import {
   ReadingText,
   SegmentedControl,
   Sheet,
+  Spinner,
   Surface,
   TapRegion,
   Text,
   TextLink,
   ThemeProvider,
   useTheme,
+  useToast,
   VStack,
 } from '../../ui/index.ts';
 
@@ -121,6 +125,11 @@ function GalleryContent({
   const [twoOptVal, setTwoOptVal] = useState<'light' | 'dark'>('light');
   const [threeOptVal, setThreeOptVal] = useState<'small' | 'default' | 'large'>('default');
   const [sheetOpen, setSheetOpen] = useState<boolean>(false);
+
+  // Feedback & Toast Specimen State
+  const toast = useToast();
+  const [toastFeedback, setToastFeedback] = useState<string>('');
+  const [errorCardDismissed, setErrorCardDismissed] = useState<boolean>(false);
 
   useEffect(() => {
     (async () => {
@@ -713,11 +722,54 @@ function GalleryContent({
             {/* 3. ImportTile States */}
             <VStack gap="xs">
               <Text variant="caption" tone="secondary" weight="semibold">
-                3. ImportTile (Idle vs. Importing States)
+                3. ImportTile (Idle vs. Disabled States)
               </Text>
               <VStack gap="md">
                 <ImportTile onPress={() => {}} />
-                <ImportTile isImporting stage="extracting text" pct={42} />
+                <ImportTile disabled />
+              </VStack>
+            </VStack>
+
+            {/* 4. ImportProgressCard States */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                4. ImportProgressCard (Importing vs. Error States)
+              </Text>
+              <VStack gap="md">
+                <ImportProgressCard
+                  status="importing"
+                  fileName="laugh-tactics.pdf"
+                  stage="reading"
+                  pct={35}
+                />
+                <ImportProgressCard
+                  status="importing"
+                  fileName="structure-and-interpretation.pdf"
+                  stage="parsing"
+                  pct={68}
+                />
+                <ImportProgressCard
+                  status="importing"
+                  fileName="crafting-interpreters.pdf"
+                  stage="detecting"
+                  pct={95}
+                />
+                {!errorCardDismissed ? (
+                  <ImportProgressCard
+                    status="error"
+                    fileName="scanned-document.pdf"
+                    errorMessage="“scanned-document.pdf” is scanned page images, not text. There is nothing to display."
+                    onDismiss={() => setErrorCardDismissed(true)}
+                  />
+                ) : (
+                  <PressableCard radius="md" onPress={() => setErrorCardDismissed(false)}>
+                    <Surface elevation={1} padding="md" border>
+                      <Text variant="footnote" tone="accent" align="center">
+                        Reset Error Card Specimen
+                      </Text>
+                    </Surface>
+                  </PressableCard>
+                )}
               </VStack>
             </VStack>
           </VStack>
@@ -867,6 +919,139 @@ function GalleryContent({
                   </HStack>
                 </Surface>
               </PressableCard>
+            </VStack>
+          </VStack>
+        </Section>
+
+        {/* Section 14: Feedback Primitives (Progress & Toast) */}
+        <Section title="Feedback Primitives (ProgressBar, Spinner, Toast)" borderBottomColor={theme.border.subtle}>
+          <VStack gap="xl">
+            {/* 1. ProgressBar at several values */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                1. PROGRESS BAR (VALUES: 0%, 25%, 65%, 100%)
+              </Text>
+              <VStack gap="md">
+                <VStack gap="xxs">
+                  <Text variant="caption" tone="tertiary">
+                    0% (Empty)
+                  </Text>
+                  <ProgressBar value={0} />
+                </VStack>
+                <VStack gap="xxs">
+                  <Text variant="caption" tone="tertiary">
+                    25% (Quarter)
+                  </Text>
+                  <ProgressBar value={0.25} />
+                </VStack>
+                <VStack gap="xxs">
+                  <Text variant="caption" tone="tertiary">
+                    65% (Movement transition)
+                  </Text>
+                  <ProgressBar value={0.65} />
+                </VStack>
+                <VStack gap="xxs">
+                  <Text variant="caption" tone="tertiary">
+                    100% (Complete)
+                  </Text>
+                  <ProgressBar value={1} />
+                </VStack>
+              </VStack>
+            </VStack>
+
+            {/* 2. Spinner sizes */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                2. SPINNER (SIZES: SM & MD)
+              </Text>
+              <HStack gap="xl" align="center">
+                <VStack gap="xs" align="center">
+                  <Spinner size="sm" />
+                  <Text variant="caption" tone="tertiary">
+                    {'size="sm" (16pt)'}
+                  </Text>
+                </VStack>
+                <VStack gap="xs" align="center">
+                  <Spinner size="md" />
+                  <Text variant="caption" tone="tertiary">
+                    {'size="md" (24pt)'}
+                  </Text>
+                </VStack>
+              </HStack>
+            </VStack>
+
+            {/* 3. Toast triggers */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                3. TOAST NOTIFICATIONS
+              </Text>
+              <VStack gap="md">
+                <PressableCard
+                  radius="md"
+                  onPress={() => {
+                    toast.show({
+                      message: '“The Elements of Typographic Style” is ready',
+                    });
+                  }}
+                >
+                  <Surface elevation={1} padding="md" border>
+                    <HStack justify="between" align="center">
+                      <VStack gap="xxs">
+                        <Text variant="body" weight="semibold">
+                          Show Plain Toast
+                        </Text>
+                        <Text variant="caption" tone="secondary">
+                          Auto-dismisses after 4000ms · Floating elevation 2
+                        </Text>
+                      </VStack>
+                      <Text variant="footnote" tone="accent" weight="medium">
+                        Trigger →
+                      </Text>
+                    </HStack>
+                  </Surface>
+                </PressableCard>
+
+                <PressableCard
+                  radius="md"
+                  onPress={() => {
+                    toast.show({
+                      message: '“Laugh Tactics” is ready',
+                      onPress: () => {
+                        setToastFeedback('Tapped toast for “Laugh Tactics”');
+                      },
+                    });
+                  }}
+                >
+                  <Surface elevation={1} padding="md" border>
+                    <HStack justify="between" align="center">
+                      <VStack gap="xxs">
+                        <Text variant="body" weight="semibold">
+                          Show Tappable Toast
+                        </Text>
+                        <Text variant="caption" tone="secondary">
+                          Tapping triggers onPress callback & dismisses
+                        </Text>
+                      </VStack>
+                      <Text variant="footnote" tone="accent" weight="medium">
+                        Trigger →
+                      </Text>
+                    </HStack>
+                  </Surface>
+                </PressableCard>
+
+                {toastFeedback ? (
+                  <View
+                    style={[
+                      styles.toastFeedbackBox,
+                      { backgroundColor: theme.surface.sunken, borderColor: theme.border.subtle },
+                    ]}
+                  >
+                    <Text variant="caption" tone="accent" weight="medium">
+                      {`Feedback: ${toastFeedback}`}
+                    </Text>
+                  </View>
+                ) : null}
+              </VStack>
             </VStack>
           </VStack>
         </Section>
@@ -1022,6 +1207,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.xxl,
     paddingVertical: space.xl,
     borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  toastFeedbackBox: {
+    padding: space[12],
+    borderRadius: radius.sm,
     borderWidth: 1,
   },
 });

@@ -2,8 +2,10 @@ import React from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
 import { space } from '../../design';
 import type { Book } from '../../pdf/types';
+import type { ImportState } from '../import';
 import { Text, VStack } from '../../ui';
 import { BookCard } from './BookCard';
+import { ImportProgressCard } from './ImportProgressCard';
 import { ImportTile } from './ImportTile';
 
 export type LibraryFeedProps = {
@@ -12,9 +14,8 @@ export type LibraryFeedProps = {
   onSelectBook: (book: Book) => void;
   onDeleteBook: (book: Book) => void;
   onImportPress: () => void;
-  isImporting?: boolean;
-  importStage?: string;
-  importPct?: number;
+  importState?: ImportState;
+  onDismissImportError?: () => void;
   headerComponent?: React.ReactNode;
   testID?: string;
 };
@@ -25,26 +26,40 @@ export function LibraryFeed({
   onSelectBook,
   onDeleteBook,
   onImportPress,
-  isImporting = false,
-  importStage,
-  importPct,
+  importState,
+  onDismissImportError,
   headerComponent,
   testID,
 }: LibraryFeedProps) {
+  const isImporting = importState?.status === 'importing';
+
   const renderHeader = () => (
     <VStack gap="md">
       {headerComponent}
-      <ImportTile
-        onPress={onImportPress}
-        isImporting={isImporting}
-        stage={importStage}
-        pct={importPct}
-      />
+      <ImportTile onPress={onImportPress} disabled={isImporting} />
+      {importState?.status === 'importing' ? (
+        <ImportProgressCard
+          status="importing"
+          fileName={importState.fileName}
+          stage={importState.stage}
+          pct={importState.pct}
+        />
+      ) : null}
+      {importState?.status === 'error' ? (
+        <ImportProgressCard
+          status="error"
+          fileName={importState.fileName}
+          errorMessage={importState.message}
+          onDismiss={onDismissImportError}
+        />
+      ) : null}
     </VStack>
   );
 
   const renderEmpty = () => {
-    if (isImporting) return null;
+    if (importState && (importState.status === 'importing' || importState.status === 'error')) {
+      return null;
+    }
     return (
       <View style={styles.emptyContainer}>
         <Text variant="body" tone="secondary" align="center">

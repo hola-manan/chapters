@@ -11,7 +11,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { type ReadingSizeName } from '../design/index.ts';
 import { PdfParserView } from '../pdf/index.ts';
 import { getSettings, saveSettings } from '../storage/index.ts';
-import { ReadingSizeProvider, ThemeProvider, type ThemeMode, useTheme } from '../ui/index.ts';
+import { ImportProvider } from '../features/index.ts';
+import { ReadingSizeProvider, ThemeProvider, ToastProvider, type ThemeMode, useTheme } from '../ui/index.ts';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -99,8 +100,18 @@ export default function RootLayout() {
     <ThemeProvider mode={themeMode} onModeChange={handleThemeModeChange}>
       <ReadingSizeProvider value={readingSize} onChange={handleReadingSizeChange}>
         <GestureHandlerRootView style={{ flex: 1 }}>
-          <ThemedStack />
-          <PdfParserView />
+          <ToastProvider>
+            <ImportProvider>
+              {/*
+                Accepted limitation: a toast cannot draw over the settings Sheet,
+                because that is a native Modal. Finishing an import while the sheet
+                is open means the toast is missed; the card in the library is the
+                durable record.
+              */}
+              <ThemedStack />
+              <PdfParserView />
+            </ImportProvider>
+          </ToastProvider>
         </GestureHandlerRootView>
       </ReadingSizeProvider>
     </ThemeProvider>

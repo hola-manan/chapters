@@ -21,6 +21,8 @@ export const durations = {
   fast: 160,
   base: 220,
   slow: 360,
+  spin: 900,
+  toast: 4000,
 } as const;
 
 export const easings = {
