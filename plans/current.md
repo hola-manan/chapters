@@ -1,4 +1,4 @@
-# Reader settings — Sheet, SegmentedControl, live reading size and theme
+# The import moment — Progress, Toast, and an import that survives navigation
 
 Read `GEMINI.md` first. No hardcoded colours, sizes, radii or durations in `ui/`, `features/` or
 `app/` — there are tests enforcing it.
@@ -7,184 +7,140 @@ Read `GEMINI.md` first. No hardcoded colours, sizes, radii or durations in `ui/`
 
 Decided:
 
-- The sheet holds **two controls: reading size and theme**. Nothing else. No line spacing, no
-  typeface picker.
-- **Reading size has three steps: Small, Default, Large.** Not five, not a slider.
-- **Theme is Light / Dark / System**, and the choice persists across launches.
-- **Pinching the page also changes the reading size**, and the two stay in sync — neither is the
-  authority, they read and write the same value.
-- **One detent, dragged down to dismiss.** The sheet has one resting height.
-- **The page behind the sheet is blurred** (`expo-blur`, already a dependency).
+- **One import at a time.** A second import attempt while one is running is ignored, and the import
+  tile is disabled for the duration.
+- **The import is visible as a card in the book's place** — top of the library feed, becoming the
+  real book card when parsing finishes.
+- **Progress is honest per stage.** A determinate bar for the stages that genuinely know their
+  position; an indeterminate circle for the stage that does not. **Stage words accompany both,
+  always.**
+- **You can leave and keep using the app.** The import continues and tells you when it is done.
+- **Completion shows a toast anywhere in the app, including while reading, and the toast is
+  tappable** — tapping opens the finished book.
+- **A rejected PDF becomes an error card inline, in the same slot**, and stays until dismissed.
 
-Not in this pass: `Slider` stays `todo` in the inventory. Nothing here needs it.
+Which stage gets which indicator — this mapping is the whole point, so get it right:
 
-## 1. Tier 1 — reading size steps
+| Stage (from `parsePdf`) | Words | Indicator |
+|---|---|---|
+| `reading` | "Reading file…" | **Bar.** Genuinely 0–100 across a known chunk count. |
+| `parsing` | "Extracting text…" | **Bar.** Genuinely 0–100 across a known page count. |
+| `detecting` | "Finding chapters…" | **Circle.** Reports a single 95 and cannot be measured. |
 
-In `design/tokens/type.ts`, add the three sizes. Line height is already derived as
-`round(fontSize * leading)` by `getReadingStyle`, so each step gets a matched leading for free —
-do not tabulate line heights by hand.
+Each bar shows **that stage's own progress**, restarting per stage. Do not stitch the three into one
+global bar — a global bar is exactly the dishonest thing this design avoids.
+
+## 1. Tier 2 — `ui/feedback/Progress.tsx`
+
+New directory `ui/feedback/`. Two components, both driven from `design/` tokens.
 
 ```ts
-export const readingSizes = {
-  small: 17,
-  default: 19,   // must equal readingConfig.baseSize
-  large: 22,
-} as const;
-
-export type ReadingSizeName = keyof typeof readingSizes;
+export type ProgressBarProps = { value: number; testID?: string };   // 0..1, clamped
+export type SpinnerProps = { size?: 'sm' | 'md'; testID?: string };
 ```
 
-## 2. Tier 2 — reading size in context
+- `ProgressBar`: a full-width track at `theme.surface.sunken`, a fill at `theme.accent.base`,
+  hairline-thin, pill radius. The fill width animates with `withSpring(springs.default)` so a jump
+  between chunk reports reads as movement rather than teleporting.
+- `Spinner`: a rotating arc — a circle with a transparent border on three sides and
+  `theme.accent.base` on one, rotated by a looping `withRepeat(withTiming(360, …), -1)`. Sizes come
+  from `space` tokens, border width from a hairline-derived value.
+- Under `useReducedMotion()` the spinner keeps rotating — it is essential feedback, not decoration —
+  but the bar's fill jumps rather than springs.
+- Export from `ui/feedback/index.ts` and `ui/index.ts`.
 
-New `ui/theme/ReadingSizeProvider.tsx` (it belongs beside the theme provider — both are
-app-wide display state).
+## 2. Tier 2 — `ui/feedback/Toast.tsx`
+
+A provider plus a hook, mounted once above the navigator so a toast can appear over any screen.
 
 ```ts
-export type ReadingSizeContextValue = {
-  size: ReadingSizeName;
-  setSize: (size: ReadingSizeName) => void;
-  step: (direction: 'up' | 'down') => void;  // clamped at the ends, returns silently at a limit
+export type ToastOptions = {
+  message: string;
+  onPress?: () => void;   // makes the toast tappable
+  durationMs?: number;    // default 4000
 };
 
-export function ReadingSizeProvider(props: {
-  value: ReadingSizeName;
-  onChange: (size: ReadingSizeName) => void;
-  children: React.ReactNode;
-}): JSX.Element;
-
-export function useReadingSize(): ReadingSizeContextValue;
+export function ToastProvider(props: { children: React.ReactNode }): JSX.Element;
+export function useToast(): { show: (options: ToastOptions) => void };
 ```
 
-- The provider is **controlled** — it holds no state of its own. The root layout owns the value and
-  its persistence; this only distributes it. That is what keeps a single source of truth between the
-  pinch gesture and the sheet.
-- `ReadingText` calls `useReadingSize()` and passes the resolved size into `getReadingStyle`. It must
-  still work with no provider above it (the gallery renders it bare) — fall back to
-  `readingConfig.baseSize`.
-- Export both from `ui/theme/index.ts` and `ui/index.ts`.
+- Renders at the bottom, above `useSafeAreaInsets().bottom`, as a `Surface elevation={2}` with a
+  pill radius and horizontal margins — floating, not full-bleed.
+- Enters and leaves by translating up from below plus opacity, `springs.default`. Auto-dismisses
+  after `durationMs`.
+- Tapping a toast with an `onPress` runs it and dismisses. Tapping one without just dismisses.
+- **One at a time.** A second `show` while one is visible replaces the current toast and restarts
+  its timer; do not build a stack, nothing in this app produces two.
+- The dismiss timer must be cleared on unmount and on replacement, or a stale timer will dismiss the
+  new toast early.
+- Export from `ui/feedback/index.ts` and `ui/index.ts`.
 
-## 3. Tier 2 — `ui/primitives/SegmentedControl.tsx`
+## 3. Tier 3 — `features/import/ImportProvider.tsx`
 
-```ts
-export type SegmentedControlProps<T extends string> = {
-  options: readonly { value: T; label: string }[];
-  value: T;
-  onChange: (value: T) => void;
-  testID?: string;
-};
-```
-
-- A `Surface sunken` track with a raised indicator behind the selected label. The indicator moves
-  with `withSpring` using `springs.default`; measure segment width with `onLayout` rather than
-  assuming equal division from screen width.
-- Labels use `Text variant="footnote" weight="medium"`; the selected label goes `weight="semibold"`,
-  unselected `tone="secondary"`.
-- Each segment is a `Pressable` with `feedback="none"` — the indicator moving *is* the feedback, and
-  a scale or overlay on top of it reads as two responses to one tap.
-- `Haptics.selectionAsync()` on a change that actually changes the value. This is a deliberate
-  choice by the user, which is what the haptics policy means by consequential; do not fire it when
-  the same segment is tapped again.
-- Degrade under `useReducedMotion()`: cross-fade the indicator instead of sliding it.
-
-## 4. Tier 2 — `ui/overlay/Sheet.tsx`
-
-New directory `ui/overlay/`. This is the richest reusable component in the project — build it
-properly.
+The import currently lives in `app/index.tsx`, so navigating away loses it. Move it above the
+navigator.
 
 ```ts
-export type SheetProps = {
-  visible: boolean;
-  onDismiss: () => void;
-  children: React.ReactNode;
-  testID?: string;
+export type ImportState =
+  | { status: 'idle' }
+  | { status: 'importing'; fileName: string; stage: string; pct: number }
+  | { status: 'error'; fileName: string; message: string };
+
+export function ImportProvider(props: { children: React.ReactNode }): JSX.Element;
+export function useImport(): {
+  state: ImportState;
+  startImport: () => Promise<void>;   // picks a document and runs the parse
+  dismissError: () => void;
 };
 ```
 
-- Renders through React Native's `Modal` with `transparent` and `animationType="none"` — the
-  animation is ours, not the platform's.
-- Backdrop is a `BlurView` from `expo-blur`, tint following `theme.scheme`, animated from 0 to full
-  intensity alongside the sheet. Tapping the backdrop dismisses.
-- The sheet panel is a `Surface elevation={2}` with a large top radius, bottom-anchored, sized by its
-  content — **no fixed height**. It must respect `useSafeAreaInsets().bottom` as extra bottom
-  padding.
-- A grab handle at the top: a short rounded bar in `theme.border.subtle`, centred.
-- Entry and exit animate `translateY` with `springs.default`, from the panel's measured height.
-- **Drag to dismiss must use velocity, not just distance.** A `Gesture.Pan()` on the panel tracks
-  downward movement; on release, dismiss if the panel has travelled past a third of its height **or**
-  if `event.velocityY` exceeds a flick threshold. Distance alone makes a fast flick feel ignored.
-  Resist upward drags (multiply by 0.2) — there is nowhere above to go.
-- Support the Android back button via `Modal`'s `onRequestClose`.
-- Export from `ui/overlay/index.ts` and `ui/index.ts`.
+- `startImport` returns immediately if `state.status === 'importing'`.
+- It owns everything `handlePickDocument` does today: the document picker, `parsePdf` with its
+  progress callback, the `no-text-layer` and `failed` rejections, and `addBook`. Move that logic;
+  do not leave a copy behind.
+- Keep the existing rejection copy verbatim — it was written deliberately.
+- On success it calls `useToast().show` with `` `“${book.title}” is ready` `` and an `onPress` that
+  routes to `/book/${book.id}`. Use `router` from `expo-router` — the provider sits inside the
+  navigator for this reason.
+- The library screen must refresh when an import finishes. It already reloads on focus; add a
+  `lastCompletedAt` timestamp to the context so a screen that is already focused can react.
 
-## 5. Persistence — `storage/settings.ts`
+## 4. Tier 3 — `features/library/ImportProgressCard.tsx`
 
-```ts
-export type AppSettings = {
-  readingSize: ReadingSizeName;   // default 'default'
-  themeMode: 'light' | 'dark' | 'system';  // default 'system'
-};
+Occupies a book card's slot at the top of the feed. Match `BookCard`'s outer shape exactly —
+same radius, same border, same width — so the swap to a real card at the end is not a jolt.
 
-export async function getSettings(): Promise<AppSettings>;
-export async function saveSettings(settings: AppSettings): Promise<void>;
-```
+- **Importing:** where the generated cover would be, a plain `theme.surface.sunken` block at the same
+  16:9 ratio. Below it the **file name** (we know it immediately; the real title only exists after
+  parsing), then a row with the stage words as `Text variant="footnote" tone="secondary"` and either
+  a `ProgressBar` or a `Spinner` per the table above.
+- **Error:** the same card shape, no progress. The file name, the rejection message as
+  `Text variant="footnote" tone="secondary"`, and a `TextLink` reading `Dismiss` calling
+  `dismissError`. It persists until dismissed — that is the point of putting it here rather than in
+  a toast.
+- Not pressable in either state.
 
-- One JSON file in the document directory, same shape as the other storage modules. Missing or
-  malformed file returns the defaults — never throw.
-- Serialise writes through a promise chain, exactly as `saveReadingPosition` does, so two rapid
-  changes cannot interleave a read-modify-write.
-- Export from `storage/index.ts`.
+## 5. Wiring
 
-## 6. Wire it up — `app/_layout.tsx`
+- `app/_layout.tsx`: wrap the tree in `ToastProvider` and `ImportProvider`, both **inside** the
+  navigator so the toast can route. Order matters — `ImportProvider` must be able to call
+  `useToast`.
+- `app/index.tsx`: delete the local import state and `handlePickDocument`; read `useImport()`
+  instead. Render `ImportProgressCard` at the top of the feed when the status is `importing` or
+  `error`. `ImportTile` gets `disabled` while importing.
+- Accepted limitation, worth a comment rather than a fix: a toast cannot draw over the settings
+  `Sheet`, because that is a native `Modal`. Finishing an import while the sheet is open means the
+  toast is missed; the card in the library is the durable record.
 
-- Load settings alongside the fonts and **keep the splash screen up until both are ready**. A flash
-  of the wrong theme or size on every launch is the whole reason to load before first paint.
-- Hold `readingSize` and `themeMode` in state; pass `themeMode` to `ThemeProvider` as
-  `themeOverride` (mapping `'system'` to `undefined`), and wrap the tree in `ReadingSizeProvider`.
-- Every change writes through `saveSettings`.
+## 6. Gallery — `app/_dev/gallery.tsx`
 
-## 7. Tier 3 — `features/reader/ReaderSettingsSheet.tsx`
+Add `ProgressBar` at several values, both `Spinner` sizes, a button that fires a toast (one plain,
+one tappable), and `ImportProgressCard` in both its importing and error states.
 
-```ts
-export type ReaderSettingsSheetProps = {
-  visible: boolean;
-  onDismiss: () => void;
-  readingSize: ReadingSizeName;
-  onChangeReadingSize: (size: ReadingSizeName) => void;
-  themeMode: 'light' | 'dark' | 'system';
-  onChangeThemeMode: (mode: 'light' | 'dark' | 'system') => void;
-};
-```
+## 7. Do not change
 
-Two labelled rows inside a `Sheet`: `TEXT SIZE` with segments Small / Default / Large, and
-`APPEARANCE` with Light / Dark / System. Labels are `Text variant="caption" tone="secondary"
-weight="semibold"`, uppercased. Both rows are `SegmentedControl`. Nothing else in the sheet — no
-title bar, no done button; the handle and drag-to-dismiss are the affordance.
-
-## 8. Opening it, and the pinch gesture
-
-- `ReaderChrome` gains an `onOpenSettings` prop and an `IconButton` at the trailing end of the bar,
-  opposite the back chevron. Use the `text` glyph from `@expo/vector-icons` Ionicons
-  (`"text-outline"`), which reads as "Aa".
-- In `app/book/[id]/[chapter].tsx`, wrap `ChapterTransition` in a `GestureDetector` running a
-  `Gesture.Pinch()`. Nested detectors are fine here — pinch needs two fingers and the chapter pan
-  needs one, so they cannot both claim a gesture.
-- **Apply the step as soon as a threshold is crossed, not on release.** Pinching out past a scale of
-  1.15 steps up one size; pinching in below 0.87 steps down one. Latch after each step (track the
-  scale at which the last step fired) so one continuous pinch can travel Small → Default → Large but
-  cannot fire twice for the same movement. Fire `Haptics.selectionAsync()` on each step, and nothing
-  at all when already at a limit.
-- Three discrete steps mean at most two re-renders during a pinch, which is why this can be live at
-  all. Do not make the size continuous.
-
-## 9. Gallery — `app/_dev/gallery.tsx`
-
-Add a section with `SegmentedControl` in a two-option and a three-option configuration, and a button
-opening a `Sheet` containing sample rows, so both are exercisable outside the reader.
-
-## 10. Do not change
-
-The reading surface, chapter opening, chrome behaviour, `useAutoHide`, the end card, chapter paging
-and its commit timing are all settled. Progress recording must keep working exactly as it does.
+The reader in any respect. The reading surface, chrome, paging, commit timing, settings sheet and
+progress recording are all settled.
 
 ## Gates
 
@@ -194,9 +150,8 @@ and its commit timing are all settled. Progress recording must keep working exac
 
 ## Constraints
 
-- **Do not touch anything outside this project directory.** `expo-blur` is already a dependency —
-  no installs are needed. If you find any other out-of-repo need, list it at the end of your
-  response instead of acting on it.
+- **Do not touch anything outside this project directory.** List any out-of-repo need at the end of
+  your response instead of acting on it.
 - **Do not commit.** Leave the tree dirty for review.
 - `pdfs/` is read-only.
 - Do not upgrade Expo, React Native or any pinned dependency. SDK 54 is a hard constraint.
