@@ -77,6 +77,7 @@ test/pdf.test.ts        Node-side tests for the pure pdf/ functions
 docs/
   components.md         component inventory + design decisions as they land
   corpus-findings.md    measured facts about the real test PDFs — READ THIS
+  library.md            API reference for design/ and ui/ — how to call them, and the traps
 pdfs/                   personal test corpus, gitignored, read-only
 plans/current.md        the task you are implementing
 ```

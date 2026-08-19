@@ -6,6 +6,9 @@ later ones. Each component gets its own pass: **brief → you decide → impleme
 
 **Status legend:** `todo` · `brief written` · `decided` · `built` · `settled`
 
+**This file records *why*.** For *how to call* anything in `design/` or `ui/`, and how to take them
+into another project, see [library.md](./library.md).
+
 ## How a pass works
 
 1. **Brief.** What the component must do, every state it has, the real content it will hold
