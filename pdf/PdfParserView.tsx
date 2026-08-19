@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { PDF_JS_SOURCE, PDF_WORKER_JS_SOURCE } from './pdfJsSource.ts';
+import { PDF_JS_SOURCE } from './pdfJsSource.ts';
+import { PDF_WORKER_JS_SOURCE } from './pdfWorkerSource.ts';
 import { handleFileRequest, handleParserMessage, registerPdfParserRef } from './parse.ts';
 
 const htmlContent = `

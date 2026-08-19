@@ -79,13 +79,13 @@ export function Pressable({
 
     if (haptic === 'selection') {
       try {
-        void Haptics.selectionAsync();
+        void Haptics.selectionAsync().catch(() => {});
       } catch {
         // Haptics unavailable on platform
       }
     } else if (haptic === 'light') {
       try {
-        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       } catch {
         // Haptics unavailable on platform
       }

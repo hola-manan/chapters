@@ -77,7 +77,7 @@ export default function ReaderScreen() {
       (direction === 'down' && sizeRef.current === 'small');
     if (atLimit) return;
     try {
-      void Haptics.selectionAsync();
+      void Haptics.selectionAsync().catch(() => {});
     } catch {
       // Haptics unavailable on platform
     }

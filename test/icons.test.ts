@@ -95,3 +95,22 @@ test('all required icon assets exist with valid PNG headers and expected dimensi
     assert.strictEqual(header.colourType, 6, `${name} colour type must be 6 (RGBA)`);
   }
 });
+
+test('all required web icon assets exist with valid PNG headers and expected dimensions', () => {
+  const expectedWebFiles: { name: string; size: number }[] = [
+    { name: 'icon-192.png', size: 192 },
+    { name: 'icon-512.png', size: 512 },
+    { name: 'icon-512-maskable.png', size: 512 },
+    { name: 'apple-touch-icon.png', size: 180 },
+  ];
+
+  for (const { name, size } of expectedWebFiles) {
+    const filePath = path.resolve(process.cwd(), 'public', 'icons', name);
+    assert.ok(fs.existsSync(filePath), `${name} must exist`);
+    const header = parsePngHeader(filePath);
+    assert.strictEqual(header.width, size, `${name} width must be ${size}`);
+    assert.strictEqual(header.height, size, `${name} height must be ${size}`);
+    assert.strictEqual(header.bitDepth, 8, `${name} bit depth must be 8`);
+    assert.strictEqual(header.colourType, 6, `${name} colour type must be 6 (RGBA)`);
+  }
+});

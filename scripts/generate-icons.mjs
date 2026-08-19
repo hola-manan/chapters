@@ -210,23 +210,34 @@ function renderIcon({ size, groundHex, markHex, inset = false }) {
 }
 
 const ICONS = [
-  { file: 'icon.png', size: 1024, groundHex: '#142621', markHex: '#F7F8FA' },
-  { file: 'icon-dark.png', size: 1024, groundHex: '#0C1412', markHex: '#F7F8FA' },
-  { file: 'icon-tinted.png', size: 1024, groundHex: '#1C1C1C', markHex: '#EDEDED' },
-  { file: 'android-icon-foreground.png', size: 1024, groundHex: 'transparent', markHex: '#F7F8FA', inset: true },
-  { file: 'android-icon-background.png', size: 1024, groundHex: '#142621', markHex: null },
-  { file: 'android-icon-monochrome.png', size: 1024, groundHex: 'transparent', markHex: '#FFFFFF', inset: true },
-  { file: 'splash-icon.png', size: 512, groundHex: 'transparent', markHex: '#142621' },
-  { file: 'splash-icon-dark.png', size: 512, groundHex: 'transparent', markHex: '#F7F8FA' },
-  { file: 'favicon.png', size: 48, groundHex: '#142621', markHex: '#F7F8FA' },
+  { dir: outputDir, file: 'icon.png', size: 1024, groundHex: '#142621', markHex: '#F7F8FA' },
+  { dir: outputDir, file: 'icon-dark.png', size: 1024, groundHex: '#0C1412', markHex: '#F7F8FA' },
+  { dir: outputDir, file: 'icon-tinted.png', size: 1024, groundHex: '#1C1C1C', markHex: '#EDEDED' },
+  { dir: outputDir, file: 'android-icon-foreground.png', size: 1024, groundHex: 'transparent', markHex: '#F7F8FA', inset: true },
+  { dir: outputDir, file: 'android-icon-background.png', size: 1024, groundHex: '#142621', markHex: null },
+  { dir: outputDir, file: 'android-icon-monochrome.png', size: 1024, groundHex: 'transparent', markHex: '#FFFFFF', inset: true },
+  { dir: outputDir, file: 'splash-icon.png', size: 512, groundHex: 'transparent', markHex: '#142621' },
+  { dir: outputDir, file: 'splash-icon-dark.png', size: 512, groundHex: 'transparent', markHex: '#F7F8FA' },
+  { dir: outputDir, file: 'favicon.png', size: 48, groundHex: '#142621', markHex: '#F7F8FA' },
+];
+
+const publicIconsDir = path.join(rootDir, 'public', 'icons');
+const WEB_ICONS = [
+  { dir: publicIconsDir, file: 'icon-192.png', size: 192, groundHex: '#142621', markHex: '#F7F8FA' },
+  { dir: publicIconsDir, file: 'icon-512.png', size: 512, groundHex: '#142621', markHex: '#F7F8FA' },
+  { dir: publicIconsDir, file: 'icon-512-maskable.png', size: 512, groundHex: '#142621', markHex: '#F7F8FA', inset: true },
+  { dir: publicIconsDir, file: 'apple-touch-icon.png', size: 180, groundHex: '#142621', markHex: '#F7F8FA' },
 ];
 
 fs.mkdirSync(outputDir, { recursive: true });
+fs.mkdirSync(publicIconsDir, { recursive: true });
 
-for (const icon of ICONS) {
+const ALL_ICONS = [...ICONS, ...WEB_ICONS];
+
+for (const icon of ALL_ICONS) {
   const startTime = Date.now();
   const pngBuffer = renderIcon(icon);
-  const outPath = path.join(outputDir, icon.file);
+  const outPath = path.join(icon.dir, icon.file);
   fs.writeFileSync(outPath, pngBuffer);
   console.log(`Generated ${icon.file} (${icon.size}x${icon.size}) in ${Date.now() - startTime}ms`);
 }

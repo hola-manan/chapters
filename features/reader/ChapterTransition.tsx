@@ -86,7 +86,7 @@ export const ChapterTransition = React.forwardRef<
 
   const triggerSelectionHaptic = () => {
     try {
-      void Haptics.selectionAsync();
+      void Haptics.selectionAsync().catch(() => {});
     } catch {
       // Haptics unavailable on platform
     }
@@ -94,7 +94,7 @@ export const ChapterTransition = React.forwardRef<
 
   const triggerBoundaryHaptic = () => {
     try {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     } catch {
       // Haptics unavailable on platform
     }

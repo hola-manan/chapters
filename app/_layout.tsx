@@ -14,7 +14,7 @@ import { getSettings, saveSettings } from '../storage/index.ts';
 import { ImportProvider } from '../features/index.ts';
 import { ReadingSizeProvider, ThemeProvider, ToastProvider, type ThemeMode, useTheme } from '../ui/index.ts';
 
-SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 function ThemedStack() {
   const theme = useTheme();
@@ -72,7 +72,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (isReady) {
-      SplashScreen.hideAsync();
+      void SplashScreen.hideAsync().catch(() => {});
     }
   }, [isReady]);
 

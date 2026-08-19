@@ -1,5 +1,5 @@
-import * as FileSystem from 'expo-file-system/legacy';
 import type { ReadingSizeName } from '../design';
+import { readText, writeText } from './kv';
 
 export type AppSettings = {
   readingSize: ReadingSizeName; // default 'default'
@@ -11,19 +11,14 @@ const DEFAULT_SETTINGS: AppSettings = {
   themeMode: 'system',
 };
 
-function getSettingsPath(): string {
-  const docDir = FileSystem.documentDirectory || '';
-  return `${docDir}settings.json`;
-}
+const SETTINGS_KEY = 'settings.json';
 
 export async function getSettings(): Promise<AppSettings> {
-  const path = getSettingsPath();
   try {
-    const info = await FileSystem.getInfoAsync(path);
-    if (!info.exists) return DEFAULT_SETTINGS;
-    const content = await FileSystem.readAsStringAsync(path);
+    const content = await readText(SETTINGS_KEY);
+    if (!content) return DEFAULT_SETTINGS;
     const raw = JSON.parse(content) as Record<string, unknown>;
-    
+
     const readingSize: ReadingSizeName =
       raw.readingSize === 'small' || raw.readingSize === 'default' || raw.readingSize === 'large'
         ? raw.readingSize
@@ -45,8 +40,7 @@ let saveChain: Promise<void> = Promise.resolve();
 export function saveSettings(settings: AppSettings): Promise<void> {
   saveChain = saveChain
     .then(async () => {
-      const path = getSettingsPath();
-      await FileSystem.writeAsStringAsync(path, JSON.stringify(settings));
+      await writeText(SETTINGS_KEY, JSON.stringify(settings));
     })
     .catch((err) => {
       console.warn('Failed to save settings:', err);

@@ -39,7 +39,7 @@ export default function LibraryScreen() {
 
   const handleDeleteBook = (book: Book) => {
     try {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     } catch {
       // Haptics unavailable on platform
     }

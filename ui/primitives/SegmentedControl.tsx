@@ -84,7 +84,7 @@ export function SegmentedControl<T extends string>({
   const handlePress = (optionValue: T) => {
     if (optionValue !== value) {
       try {
-        void Haptics.selectionAsync();
+        void Haptics.selectionAsync().catch(() => {});
       } catch {
         // Haptics unavailable on platform
       }

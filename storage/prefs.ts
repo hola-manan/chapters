@@ -1,6 +1,5 @@
-// Deliberate use of expo-file-system/legacy API for chunked file reading and file ops
-import * as FileSystem from 'expo-file-system/legacy';
 import type { Book } from '../pdf/types.ts';
+import { readText, writeText } from './kv';
 
 export const CHAPTER_DONE_THRESHOLD = 0.98;
 
@@ -11,24 +10,22 @@ export type ChapterProgress = {
 
 export type BookPrefs = Record<string, ChapterProgress>;
 
-function getPrefsPath(bookId: string): string {
-  const docDir = FileSystem.documentDirectory || '';
-  return `${docDir}prefs_${bookId}.json`;
+function getPrefsKey(bookId: string): string {
+  return `prefs_${bookId}.json`;
 }
 
 export async function getBookPrefs(bookId: string): Promise<BookPrefs> {
-  const path = getPrefsPath(bookId);
+  const key = getPrefsKey(bookId);
   try {
-    const info = await FileSystem.getInfoAsync(path);
-    if (!info.exists) return {};
-    const content = await FileSystem.readAsStringAsync(path);
+    const content = await readText(key);
+    if (!content) return {};
     const raw = JSON.parse(content) as Record<string, number | ChapterProgress>;
     const prefs: BookPrefs = {};
-    for (const [key, val] of Object.entries(raw)) {
+    for (const [k, val] of Object.entries(raw)) {
       if (typeof val === 'number') {
-        prefs[key] = { blockIndex: val, progress: 0 };
+        prefs[k] = { blockIndex: val, progress: 0 };
       } else if (val && typeof val === 'object') {
-        prefs[key] = {
+        prefs[k] = {
           blockIndex: typeof val.blockIndex === 'number' ? val.blockIndex : 0,
           progress: typeof val.progress === 'number' ? Math.min(1, Math.max(0, val.progress)) : 0,
         };
@@ -50,7 +47,7 @@ export function saveReadingPosition(
 ): Promise<void> {
   saveChain = saveChain
     .then(async () => {
-      const path = getPrefsPath(bookId);
+      const key = getPrefsKey(bookId);
       const prefs = await getBookPrefs(bookId);
 
       const clampedProgress = Math.min(1, Math.max(0, progress));
@@ -69,7 +66,7 @@ export function saveReadingPosition(
         progress: finalProgress,
       };
 
-      await FileSystem.writeAsStringAsync(path, JSON.stringify(prefs));
+      await writeText(key, JSON.stringify(prefs));
     })
     .catch((err) => {
       console.warn('Failed to save reading position:', err);

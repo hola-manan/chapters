@@ -1,17 +1,15 @@
-// Deliberate use of expo-file-system/legacy API for chunked file reading and file ops
-import * as FileSystem from 'expo-file-system/legacy';
 import type { Book } from '../pdf/types.ts';
 import { deleteBookFiles, readBookData, saveBookData, saveBookSource } from './files.ts';
+import { readText, writeText } from './kv';
 
-const LIBRARY_INDEX_PATH = `${FileSystem.documentDirectory || ''}library.json`;
+const LIBRARY_INDEX_KEY = 'library.json';
 
 export async function listBooks(): Promise<Book[]> {
   try {
-    const info = await FileSystem.getInfoAsync(LIBRARY_INDEX_PATH);
-    if (!info.exists) {
+    const content = await readText(LIBRARY_INDEX_KEY);
+    if (!content) {
       return [];
     }
-    const content = await FileSystem.readAsStringAsync(LIBRARY_INDEX_PATH);
     const summaries = JSON.parse(content) as Array<{ id: string }>;
 
     const books: Book[] = [];
@@ -35,9 +33,11 @@ export async function addBook(book: Book): Promise<void> {
   // Copy PDF from temporary picker cache to permanent book storage
   let permanentUri = book.sourceUri;
   try {
-    permanentUri = await saveBookSource(book.id, book.sourceUri);
+    const saved = await saveBookSource(book.id, book.sourceUri);
+    permanentUri = saved || '';
   } catch (e) {
     console.warn('Failed to copy source PDF to permanent directory', e);
+    permanentUri = '';
   }
 
   const updatedBook: Book = { ...book, sourceUri: permanentUri };
@@ -53,7 +53,7 @@ export async function addBook(book: Book): Promise<void> {
     addedAt: b.addedAt,
   }));
 
-  await FileSystem.writeAsStringAsync(LIBRARY_INDEX_PATH, JSON.stringify(indexData));
+  await writeText(LIBRARY_INDEX_KEY, JSON.stringify(indexData));
 }
 
 export async function removeBook(id: string): Promise<void> {
@@ -68,5 +68,5 @@ export async function removeBook(id: string): Promise<void> {
     addedAt: b.addedAt,
   }));
 
-  await FileSystem.writeAsStringAsync(LIBRARY_INDEX_PATH, JSON.stringify(indexData));
+  await writeText(LIBRARY_INDEX_KEY, JSON.stringify(indexData));
 }
