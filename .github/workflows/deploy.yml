@@ -37,6 +37,12 @@ jobs:
       - name: Export web
         run: npx expo export --platform web
 
+      # A bundle containing import.meta outside a module parses fine everywhere except the
+      # browser, where it kills the whole app before it runs. Fail the deploy instead of shipping
+      # a white screen.
+      - name: Check the bundle compiles as a classic script
+        run: npm run check:web
+
       # GitHub Pages has no SPA rewrite, so a reload on a client-side route such as
       # /chapters/book/<id> would 404. Pages serves 404.html for unknown paths, so a copy of the
       # shell there makes deep links and reloads resolve to the app instead of an error page.

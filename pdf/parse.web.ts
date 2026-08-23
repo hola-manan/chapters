@@ -1,5 +1,6 @@
 import type * as PdfjsLib from 'pdfjs-dist';
 import { detectChapters, resolveBookTitle } from './chapters.ts';
+import { PDF_JS_SOURCE } from './pdfJsSource.ts';
 import { PDF_WORKER_JS_SOURCE } from './pdfWorkerSource.ts';
 import type { Book, OutlineEntry, TextRun } from './types.ts';
 
@@ -43,35 +44,49 @@ if (streamProto && !streamProto[Symbol.asyncIterator]) {
   streamProto.values = streamProto[Symbol.asyncIterator];
 }
 
-// pdf.js is pulled in through an inline require, and deliberately not through either of the two
-// obvious alternatives.
+// pdf.js is loaded exactly the way the native WebView loads it: the source is held as a *string*
+// and evaluated at runtime from a Blob URL. That is not incidental — it is the only arrangement
+// that works here, and each of the alternatives fails in its own way.
 //
-// A top-level import fails the build: `web.output: "static"` makes Expo pre-render every route in
-// Node, and pdfjs-dist touches DOMMatrix at module scope, which does not exist there. Static
-// rendering cannot simply be turned off either — `app/+html.tsx` only applies under it, and
-// without that shell the app has no manifest link, no apple-touch-icon, no viewport-fit=cover and
-// no service worker, i.e. it stops being installable.
+// Importing `pdfjs-dist` as a module — statically or via require() — puts its code through Metro
+// and into the main bundle, which the page loads as a classic script. pdf.js contains
+// `createRequire(import.meta.url)` in two Node-only branches, and `import.meta` is a *parse-time*
+// error in a classic script, so the entire bundle fails before a line of it runs. That is a white
+// screen with no clue in it beyond one SyntaxError.
 //
-// A dynamic import() avoids the Node problem but makes Metro emit an async chunk, and requiring a
-// module out of that chunk failed at runtime on the deployed sub-path ("unknown module 1041").
+// A lazy import() instead emits an async Metro chunk, and requiring a module out of that chunk
+// failed at runtime on the deployed sub-path ("unknown module 1041").
 //
-// An inline require resolves from the same bundle — no chunk, no chunk loader — and is not
-// evaluated until a PDF is actually opened, so Node never sees it.
-declare const require: (moduleId: string) => unknown;
+// Held as a string, the source never reaches Metro's parser. Evaluating it through the browser's
+// own dynamic import gives it a module context, where those `import.meta` branches are legal —
+// and being Node-only, they never execute anyway.
+declare const Function: FunctionConstructor;
 
-let pdfjs: typeof PdfjsLib | null = null;
+// Metro rewrites a literal `import()` into its own async-require, which cannot load a Blob URL.
+// This indirection keeps the call opaque to the bundler so the browser's native dynamic import is
+// what actually runs.
+const nativeDynamicImport = new Function('u', 'return import(u)') as (
+  url: string
+) => Promise<unknown>;
 
-function getPdfjs(): typeof PdfjsLib {
-  if (!pdfjs) {
-    pdfjs = require('pdfjs-dist') as typeof PdfjsLib;
-    // The worker is a Blob URL built from the inlined worker source, which avoids asking Metro to
-    // bundle a worker entry point at all.
-    if (typeof window !== 'undefined' && !pdfjs.GlobalWorkerOptions.workerSrc) {
-      const workerBlob = new Blob([PDF_WORKER_JS_SOURCE], { type: 'application/javascript' });
-      pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(workerBlob);
-    }
+let pdfjsPromise: Promise<typeof PdfjsLib> | null = null;
+
+function loadPdfjs(): Promise<typeof PdfjsLib> {
+  if (!pdfjsPromise) {
+    pdfjsPromise = (async () => {
+      const mainUrl = URL.createObjectURL(
+        new Blob([PDF_JS_SOURCE], { type: 'application/javascript' })
+      );
+      const lib = (await nativeDynamicImport(mainUrl)) as typeof PdfjsLib;
+
+      const workerUrl = URL.createObjectURL(
+        new Blob([PDF_WORKER_JS_SOURCE], { type: 'application/javascript' })
+      );
+      lib.GlobalWorkerOptions.workerSrc = workerUrl;
+      return lib;
+    })();
   }
-  return pdfjs;
+  return pdfjsPromise;
 }
 
 async function processOutline(
@@ -122,7 +137,7 @@ export async function parsePdf(
   const pdfData = new Uint8Array(buf);
   onProgress?.('reading', 100);
 
-  const pdfjsLib = getPdfjs();
+  const pdfjsLib = await loadPdfjs();
   const loadingTask = pdfjsLib.getDocument({
     data: pdfData,
   });

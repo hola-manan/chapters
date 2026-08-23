@@ -8,7 +8,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "icons": "node scripts/generate-icons.mjs"
+    "icons": "node scripts/generate-icons.mjs",
+    "check:web": "node scripts/check-web-bundle.mjs"
   },
   "dependencies": {
     "@expo-google-fonts/literata": "^0.4.3",
