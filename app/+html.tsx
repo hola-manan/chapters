@@ -19,6 +19,19 @@ export default function Root({ children }: PropsWithChildren) {
         <style
           dangerouslySetInnerHTML={{
             __html: `
+              /* viewport-fit=cover extends the viewport under the home indicator, and whatever
+                 no element paints falls through to the canvas — which the browser takes from
+                 html's background and otherwise renders white. React Native Web paints the theme
+                 inside the app tree only, so without this the strip below the app was a white bar
+                 on a dark page. color-scheme additionally stops the UA painting its own surfaces
+                 (overscroll, scrollbars, form controls) as light. */
+              html {
+                background: ${color.neutrals.paper};
+                color-scheme: light dark;
+              }
+              @media (prefers-color-scheme: dark) {
+                html { background: ${color.darkGround[900]}; }
+              }
               html, body, #root { height: 100%; }
               body { overscroll-behavior: none; }
             `,
