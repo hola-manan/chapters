@@ -176,3 +176,12 @@ test('enforce tier 2 imports rule for ui/ layer (may import design/ or relative 
     )}`
   );
 });
+
+test('withAlpha converts hex to rgba with requested alpha preserving rgb values', async () => {
+  const { withAlpha } = await import('../design/tokens/color.ts');
+  assert.strictEqual(withAlpha('#F7F8FA', 0), 'rgba(247, 248, 250, 0)');
+  assert.strictEqual(withAlpha('#FFF', 0.5), 'rgba(255, 255, 255, 0.5)');
+  assert.strictEqual(withAlpha('#142621', 1), 'rgba(20, 38, 33, 1)');
+  assert.strictEqual(withAlpha('#000', 0), 'rgba(0, 0, 0, 0)');
+});
+

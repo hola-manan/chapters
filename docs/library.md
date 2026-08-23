@@ -21,7 +21,9 @@ react-native-gesture-handler
 react-native-safe-area-context
 expo-haptics
 expo-blur            # Sheet's backdrop only
+expo-linear-gradient # EdgeFade only
 @expo/vector-icons   # Icon only
+
 ```
 
 `design/` needs nothing at all — it is plain TypeScript objects. That is the point of it, and it is
@@ -183,6 +185,13 @@ band cannot be expressed as a single token.
 
 **`text.tertiary` is roughly 2.8:1 in light mode.** Disabled states and decoration only. Anything
 meant to be read uses `secondary`.
+
+### `withAlpha(hex: string, alpha: number): string`
+
+Takes `#RRGGBB` (or `#RGB`) and returns `rgba(r, g, b, alpha)`. Pure, tier-1 helper with zero package
+imports. Used whenever a gradient fades to transparent so the fade target preserves the surface's
+RGB channels rather than defaulting to transparent black.
+
 
 ---
 
@@ -435,6 +444,30 @@ Needs the screen's native header off. A native header title cannot be animated f
 scroll-linked interpolation on the JS thread is exactly the jank this avoids. Turning the header off
 does **not** disable the native back gesture — that is a separate flag.
 
+### `EdgeFade`
+
+```ts
+<EdgeFade
+  edge="top" | "bottom"
+  solidHeight?: number       // default 0, fully opaque band at outer edge (e.g. insets.top)
+  fadeHeight: number         // gradient span between solid band and content (e.g. space.xl)
+  color?: string             // defaults to theme.surface.page
+  testID?: string
+/>
+```
+
+Pinned edge gradient overlay. Implemented as a single `LinearGradient` node with `locations`
+derived from `solidRatio = solidHeight / (solidHeight + fadeHeight)`. For `edge="bottom"`, the
+colour order reverses so the solid band covers the bottom inset (home indicator) while the gentler
+gradient faces the content.
+
+**`pointerEvents="none"` is mandatory.** Without it, the top and bottom edge regions capture touches
+and deaden tap-to-toggle chrome and other scroll interactions.
+
+Has `zIndex: 5`, sitting above scrolling content but beneath `ReaderChrome` (`zIndex: 10`). Pinned
+at the screen root outside `ChapterTransition` so edge treatments stay fixed during horizontal swipe.
+
+
 ## Feedback
 
 ### `ProgressBar` · `Spinner`
@@ -539,3 +572,9 @@ Collected because each one cost real debugging time.
    competes with rendering. Use `runOnJS(fn)` for the callback instead.
 8. **`react-native-gesture-handler` needs `GestureHandlerRootView` at the root**, or gestures fail
    silently with no warning.
+9. **A gradient ending at `'transparent'` creates a dirty grey halo.** In CSS and native renderers,
+   `'transparent'` resolves to `rgba(0, 0, 0, 0)` (transparent black). Interpolating from a light paper
+   background (`#F7F8FA`) toward `'transparent'` interpolates through darker semi-transparent greys in
+   the middle of the fade. The gradient must always end at the *same RGB* with alpha 0 using
+   `withAlpha(c, 0)`.
+

@@ -14,6 +14,7 @@ import {
 import type { Block, Book } from '../../pdf/types.ts';
 import { listBooks } from '../../storage/index.ts';
 import {
+  EdgeFade,
   EmptyState,
   HStack,
   Icon,
@@ -1211,6 +1212,64 @@ function GalleryContent({
             </VStack>
           </VStack>
         </Section>
+
+        {/* Section 17: EdgeFade Overlays */}
+        <Section title="EdgeFade Overlays (Top & Bottom Fades)" borderBottomColor={theme.border.subtle}>
+          <VStack gap="xl">
+            {/* 1. Current Theme Specimen */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                1. CURRENT THEME SPECIMEN (OVER PARAGRAPH PROSE)
+              </Text>
+              <View
+                style={[
+                  styles.edgeFadeSpecimen,
+                  { backgroundColor: theme.surface.page, borderColor: theme.border.subtle },
+                ]}
+              >
+                <EdgeFade edge="top" solidHeight={space.md} fadeHeight={space.xl} />
+                <EdgeFade edge="bottom" solidHeight={space.md} fadeHeight={space.md} />
+                <ParagraphBlock text={bodyParagraphs[0]} />
+                <ParagraphBlock text={bodyParagraphs[1]} />
+                <ParagraphBlock text={bodyParagraphs[2 % bodyParagraphs.length]} />
+              </View>
+            </VStack>
+
+            {/* 2. Light Theme Override Specimen (Banding & Halo Check) */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                2. LIGHT THEME OVERRIDE (PAPER FADE INSPECTION)
+              </Text>
+              <ThemeProvider themeOverride="light">
+                <Surface elevation={0} padding="none" radius="md" border>
+                  <View style={styles.edgeFadeSpecimenInner}>
+                    <EdgeFade edge="top" solidHeight={space.md} fadeHeight={space.xl} />
+                    <EdgeFade edge="bottom" solidHeight={space.md} fadeHeight={space.md} />
+                    <ParagraphBlock text={bodyParagraphs[0]} />
+                    <ParagraphBlock text={bodyParagraphs[1]} />
+                  </View>
+                </Surface>
+              </ThemeProvider>
+            </VStack>
+
+            {/* 3. Dark Theme Override Specimen (Dark Ground Fade Inspection) */}
+            <VStack gap="xs">
+              <Text variant="caption" tone="secondary" weight="semibold">
+                3. DARK THEME OVERRIDE (DARK GROUND FADE INSPECTION)
+              </Text>
+              <ThemeProvider themeOverride="dark">
+                <Surface elevation={0} padding="none" radius="md" border>
+                  <View style={styles.edgeFadeSpecimenInner}>
+                    <EdgeFade edge="top" solidHeight={space.md} fadeHeight={space.xl} />
+                    <EdgeFade edge="bottom" solidHeight={space.md} fadeHeight={space.md} />
+                    <ParagraphBlock text={bodyParagraphs[0]} />
+                    <ParagraphBlock text={bodyParagraphs[1]} />
+                  </View>
+                </Surface>
+              </ThemeProvider>
+            </VStack>
+          </VStack>
+        </Section>
       </ScrollView>
 
       {/* Gallery Sample Sheet */}
@@ -1374,4 +1433,19 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 1,
   },
+  edgeFadeSpecimen: {
+    height: 240,
+    overflow: 'hidden',
+    paddingHorizontal: space.xxl,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    position: 'relative',
+  },
+  edgeFadeSpecimenInner: {
+    height: 200,
+    overflow: 'hidden',
+    paddingHorizontal: space.xxl,
+    position: 'relative',
+  },
 });
+

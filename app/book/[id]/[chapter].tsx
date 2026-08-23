@@ -27,7 +27,7 @@ import {
 import { displayTitle } from '../../../pdf';
 import type { Book } from '../../../pdf/types';
 import { getBook, getReadingPosition, saveReadingPosition } from '../../../storage';
-import { EmptyState, SkeletonText, useAutoHide, useReadingSize, useTheme, useThemeMode } from '../../../ui';
+import { EmptyState, EdgeFade, SkeletonText, useAutoHide, useReadingSize, useTheme, useThemeMode } from '../../../ui';
 
 // Relative pinch travel that commits one size step. Small enough to feel responsive, large enough
 // that an unsteady two-finger rest does not trip it.
@@ -200,6 +200,8 @@ export default function ReaderScreen() {
           bookTitle={initialBookTitle ?? ''}
           onBack={() => router.replace(`/book/`)}
         />
+        <EdgeFade edge="top" solidHeight={insets.top} fadeHeight={space.xl} />
+        <EdgeFade edge="bottom" solidHeight={insets.bottom} fadeHeight={space.md} />
         <View
           style={[
             styles.listContainer,
@@ -304,6 +306,9 @@ export default function ReaderScreen() {
         onBack={() => router.replace(`/book/${book.id}`)}
         onOpenSettings={() => setSettingsVisible(true)}
       />
+
+      <EdgeFade edge="top" solidHeight={insets.top} fadeHeight={space.xl} />
+      <EdgeFade edge="bottom" solidHeight={insets.bottom} fadeHeight={space.md} />
 
       <GestureDetector gesture={pinchGesture}>
         <View style={styles.container}>

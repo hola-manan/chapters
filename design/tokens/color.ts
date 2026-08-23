@@ -70,3 +70,31 @@ export const color = {
   overlay,
   pure,
 } as const;
+
+/**
+ * Takes #RRGGBB (or #RGB) and returns rgba(r, g, b, alpha).
+ *
+ * This is not a convenience, it is the whole correctness of the gradient. A gradient ending
+ * at 'transparent' ends at transparent *black* (rgba(0, 0, 0, 0)), and interpolation runs through
+ * progressively darker semi-transparent greys — producing a visible dirty halo through the middle
+ * of the fade, worst on a light paper background. The gradient must end at the *same RGB* with alpha 0.
+ */
+export function withAlpha(hex: string, alpha: number): string {
+  const cleaned = hex.trim().replace(/^#/, '');
+  let r = 0;
+  let g = 0;
+  let b = 0;
+
+  if (cleaned.length === 3) {
+    r = parseInt(cleaned[0] + cleaned[0], 16);
+    g = parseInt(cleaned[1] + cleaned[1], 16);
+    b = parseInt(cleaned[2] + cleaned[2], 16);
+  } else if (cleaned.length === 6) {
+    r = parseInt(cleaned.slice(0, 2), 16);
+    g = parseInt(cleaned.slice(2, 4), 16);
+    b = parseInt(cleaned.slice(4, 6), 16);
+  }
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
