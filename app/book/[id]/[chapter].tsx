@@ -201,7 +201,6 @@ export default function ReaderScreen() {
           onBack={() => router.replace(`/book/`)}
         />
         <EdgeFade edge="top" solidHeight={insets.top} fadeHeight={space.xl} />
-        <EdgeFade edge="bottom" solidHeight={insets.bottom} fadeHeight={space.md} />
         <View
           style={[
             styles.listContainer,
@@ -308,7 +307,6 @@ export default function ReaderScreen() {
       />
 
       <EdgeFade edge="top" solidHeight={insets.top} fadeHeight={space.xl} />
-      <EdgeFade edge="bottom" solidHeight={insets.bottom} fadeHeight={space.md} />
 
       <GestureDetector gesture={pinchGesture}>
         <View style={styles.container}>
