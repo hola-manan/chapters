@@ -1,145 +1,131 @@
-# Fix resume: remember where the reader actually was
+# Anchor the reading position to content instead of pixels
 
 Read `GEMINI.md` first.
 
-## Context — the bug, precisely
+## Context
 
-Reopening a book, and the highlighted row on Contents, both come from `resumeChapterId`
-(`storage/prefs.ts`). It returns **the first chapter whose progress is above 0 but below the 0.98
-done threshold** — the earliest chapter left unfinished, not the last one read.
-
-Pressing "Next chapter" on `ChapterEndCard` does not record that the chapter is finished. It only
-saves whatever high-water mark the scroll handler last happened to write. The Next button is
-reachable well before the true bottom of the scroll (the card's own height plus roughly 66pt of
-list padding sit below it), so the chapter is typically left at 0.90–0.97 — under the threshold,
-permanently `in_progress`, and because the rule is *first* in-progress it shadows every chapter
-after it. The reader is dragged back to it on every visit, forever, since progress only ratchets up.
-
-It is intermittent, which is why it was hard to pin: overscroll to the real bottom before tapping
-and progress reaches exactly 1, the chapter goes `done`, and resume moves on correctly.
-
-**The human chose to fix both halves:** track the chapter that was actually open, *and* treat
-pressing Next as an explicit completion.
-
-Note this is a different bug from the `Math.floor(yOffset / 40)` block-index estimate in the
-reader, which is also wrong but governs scroll position *within* a chapter. **Do not touch that in
-this pass.**
-
-## 1. `storage/progress.ts` — new, pure
-
-Move `CHAPTER_DONE_THRESHOLD`, `ChapterProgress`, `BookPrefs`, `chapterState`,
-`computeBookProgress` and `resumeChapterId` out of `prefs.ts` into a new `storage/progress.ts`.
-
-**It must have no runtime imports** — `import type { Book }` only, which erases. That is the whole
-reason for the split: `prefs.ts` imports `./kv`, which reaches `expo-file-system`, so none of this
-logic can currently be tested in Node. It is the only real logic in the app besides the parser and
-it should be testable without a phone.
-
-`prefs.ts` re-exports everything it moved, and `storage/index.ts` also exports `./progress`, so no
-consumer import changes anywhere.
-
-## 2. `resumeChapterId` — new signature and rule
+The reader stores where you were as a block index, but derives it from pixels
+(`app/book/[id]/[chapter].tsx`, in `handleScroll`):
 
 ```ts
-export function resumeChapterId(book: Book, prefs: BookPrefs, lastChapterId?: string): string
+const blockIndex = Math.max(0, Math.floor(yOffset / 40));
 ```
 
-In order:
+That hardcodes every block at 40pt tall. A real paragraph at reading size is about 27pt per line,
+so blocks run 80–150pt and the index comes out roughly 2–3× too high. It is then fed to
+`initialScrollIndex` behind a bounds check, so there are two failure modes and no success mode:
+short chapters (which is every chapter in this app) overflow the check, fall to `undefined`, and
+silently reopen at the top; long chapters stay under it and scroll too far.
 
-1. If `lastChapterId` names a chapter that exists in this book:
-   - not `done` → return it.
-   - `done` → return the first chapter **after** it that is not `done`. If every chapter after it
-     is done, fall through to the rules below rather than returning something already finished.
-2. First `in_progress` chapter.
-3. First `unread` chapter.
-4. The last chapter.
+The deeper problem is that a pixel-derived position is **invalid the moment the reader changes
+reading size**, and this app has pinch-to-resize. This is the exact reason Amazon invented Kindle
+"locations" (128 bytes of source text) and the reason EPUB CFI is a structural path into the
+document rather than a coordinate: point at the text, not at the screen.
 
-Steps 2–4 are the existing behaviour and must stay as the fallback, so a book read before this
-change still resolves sensibly with no stored pointer.
+`blockIndex` is already the right *model* — an index into `Chapter.blocks`, which is a stable
+content array, effectively a poor-man's CFI. It is only the *derivation* that throws that away.
+This pass makes the field be what its name claims.
 
-## 3. Last-read pointer — `storage/prefs.ts`
+## 1. Take the block index from the list, not from arithmetic
+
+`FlatList` already knows which items are on screen. Use `onViewableItemsChanged` and record the
+**smallest `index` among the viewable items** — the topmost block at least partially visible.
+
+Partially visible is deliberate: landing a reader slightly earlier than where they stopped means
+re-reading a line, while landing later means silently skipping one. So use
+`viewabilityConfig = { itemVisiblePercentThreshold: 0 }`.
+
+**Both the callback and the config must be stable references for the lifetime of the list.** React
+Native throws `Changing onViewableItemsChanged on the fly is not supported` otherwise. Hold each in
+a `useRef` created once, never inline and never in a `useMemo` with dependencies.
+
+Because it must be stable, the callback must not close over `id`, `chapter` or any state — those
+change on every swipe and the closure would go stale. Have it write **only to a ref**, and let the
+existing save paths (`onScrollEndDrag`, `onMomentumScrollEnd`, the chapter-change effect, and the
+`useFocusEffect` cleanup) persist it exactly as they do now. That keeps the whole change inside the
+existing save machinery.
+
+Delete the `Math.floor(yOffset / 40)` line. Nothing else should compute a block index.
+
+## 2. Position is a pointer, not a watermark
+
+Progress and position are two numbers with two different rules, and conflating them is what this
+whole area keeps getting wrong.
+
+- **Progress stays a high-water mark.** It only ratchets up. Do not change this.
+- **Position must become last-known, free to move backwards.** Scroll back to re-read something,
+  leave, and return — you should land where you actually were, not at the furthest point you ever
+  reached.
+
+Today `saveReadingPosition` maxes the block index:
 
 ```ts
-export async function getLastChapter(bookId: string): Promise<string | undefined>
-export function saveLastChapter(bookId: string, chapterId: string): Promise<void>
+const finalBlockIndex =
+  existingProgress > clampedProgress ? existingBlockIndex : Math.max(existingBlockIndex, blockIndex);
 ```
 
-Store under its own kv key, `lastread_<bookId>.json`, holding `{ "chapterId": "..." }`.
+Rename `maxBlockIndexRef` to `blockIndexRef` in the reader and have it track the current value
+rather than the maximum (drop the `if (blockIndex > ...)` guard around it — the progress guard next
+to it stays).
 
-Deliberately a separate key rather than a field inside the prefs file: `BookPrefs` is
-`Record<chapterId, ChapterProgress>` and several consumers index it directly, so adding a non-chapter
-key to that object would need a migration and would make every lookup unsafe. A separate key costs
-one extra read and needs no migration at all.
+Extract the merge rule into `storage/progress.ts` as a pure function so it can be tested:
 
-Tolerate a missing or malformed file by returning `undefined`. Route the write through the same
-`saveChain` promise chain the existing `saveReadingPosition` uses, so writes cannot interleave.
-
-## 4. Reader — `app/book/[id]/[chapter].tsx`
-
-**Record the open chapter.** In the existing effect keyed on `[currentIndex, book, id]`, after the
-`prevIndexRef` bookkeeping, call `saveLastChapter(id, book.chapters[currentIndex].id)`
-unconditionally. This runs on entry and on every swipe, so the pointer survives the app being
-killed.
-
-**Make Next mean finished.** The `ChapterEndCard`'s `onNext` currently calls
-`transitionRef.current?.advance('next')`. Set `maxProgressRef.current = 1` immediately before that
-call, so the chapter-change effect persists a completed chapter rather than a 0.9-something one.
-
-Comment it: pressing Next is the reader stating they are done, and inferring completion from scroll
-position instead is what left chapters stuck below the threshold.
-
-**Only that button.** Do not mark done on swipe, and do not mark done on "back to contents" — both
-are ambiguous, and a swipe out of a chapter you are halfway through must stay halfway through.
-
-## 5. Contents — `app/book/[id]/index.tsx`
-
-`loadData` also fetches `getLastChapter(id)` into state; pass it as the third argument to
-`resumeChapterId`. `loadData` already re-runs on focus, so the marker refreshes on return from the
-reader with no other change.
-
-## 6. `test/progress.test.ts` — new
-
-Node tests over the pure module, now that it imports nothing at runtime. Cover at minimum:
-
-- `lastChapterId` names an unfinished chapter → that chapter wins over an earlier in-progress one.
-  **This is the regression test for the reported bug** — build the fixture so chapter 1 sits at 0.94
-  and the pointer names chapter 2, and assert chapter 2 is returned.
-- `lastChapterId` names a finished chapter → the first not-done chapter after it.
-- `lastChapterId` finished and everything after it finished → falls through to the old rules.
-- `lastChapterId` absent, or naming a chapter not in this book → falls through to the old rules.
-- The old rules in isolation: first in-progress, then first unread, then the last chapter.
-- A book with no chapters returns `''` and does not throw.
-- `chapterState` at exactly 0, just under 0.98, exactly 0.98 and 1.
-- `computeBookProgress` weights by word count, not by chapter count, and treats a zero word count
-  as 1 rather than dividing by zero.
-
-Add a `test` script to `package.json` running all four test files, so the suite stops being a
-command that has to be remembered:
-
-```json
-"test": "node --test --experimental-strip-types test/pdf.test.ts test/design.test.ts test/icons.test.ts test/progress.test.ts"
+```ts
+export function mergeChapterProgress(
+  existing: ChapterProgress | undefined,
+  incoming: ChapterProgress
+): ChapterProgress
 ```
 
-## 7. Docs
+Rule: `progress` is `Math.max(existing.progress, incoming.progress)` clamped to 0..1; `blockIndex`
+is `incoming.blockIndex` clamped to `>= 0`. `saveReadingPosition` calls it instead of computing
+inline. This continues the split started last pass — `progress.ts` has no runtime imports and is
+the only part of `storage/` that can be tested in Node.
 
-- `docs/components.md` — a short note under the reader entries recording why resume was wrong:
-  "first unfinished chapter" is a sticky rule, and completion was being inferred from scroll depth
-  rather than taken from the reader's explicit action.
-- `docs/library.md` — nothing to add. This is all tier 3 and `storage/`, not the reusable library.
+## 3. Tighten the restore guard
+
+`initialScrollIndex={initialIndex && initialIndex < displayBlocks.length ? initialIndex : undefined}`
+uses a truthiness test, so index 0 falls through — harmless, since 0 is the top anyway, but it
+reads as a bug. Make it an explicit `initialIndex !== null && initialIndex > 0 && initialIndex <
+displayBlocks.length`.
+
+Leave `onScrollToIndexFailed` alone. `initialScrollIndex` without `getItemLayout` legitimately fails
+on a variable-height list, and its `info.averageItemLength * info.index` fallback is React Native's
+own measured estimate — far better than the 40 this pass is deleting. Do **not** add
+`getItemLayout`: block heights genuinely vary and any fixed estimate reintroduces the bug.
+
+## 4. Do not touch
+
+- The chapter progress fraction (`yOffset / maxScroll`). Making that content-weighted too is a real
+  improvement and is deliberately **not** in this pass.
+- The 0.98 done threshold, `computeBookProgress`, `resumeChapterId`, or the last-read pointer.
+  Last pass settled those.
+- `EdgeFade`, `ReaderChrome`, `ChapterTransition`, or any typography.
+
+## 5. Tests — `test/progress.test.ts`
+
+Add cases for `mergeChapterProgress`:
+
+- No existing entry → incoming is taken as-is.
+- Higher incoming progress wins; **lower incoming progress does not lower the stored value.**
+- **A lower incoming `blockIndex` *does* replace a higher stored one** — this is the regression test
+  for the pointer-vs-watermark distinction, and the behaviour that is changing.
+- Progress clamps into 0..1 from out-of-range input on both sides.
+- A negative `blockIndex` clamps to 0.
 
 ## Gates
 
 - `npx tsc --noEmit`
 - `npm run lint`
-- `npm test` (the new script — all four files, and report the count)
+- `npm test` — report the count
 - `npx expo export --platform web` then `npm run check:web`
+
+Additionally, **grep the reader for `/ 40` and confirm it is gone**, and confirm
+`onViewableItemsChanged` and `viewabilityConfig` are each passed a ref's `.current` created once.
+State both explicitly in your report.
 
 ## Constraints
 
 - **Do not touch anything outside this project directory.** Do not run `git`, do not commit.
 - No package installs.
-- Do not change `Math.floor(yOffset / 40)` or anything about scroll restoration within a chapter.
-- Do not change the 0.98 threshold, the high-water-mark behaviour of `saveReadingPosition`, or the
-  word-weighted `computeBookProgress` formula.
-- Do not change `EdgeFade`, `ReaderChrome`, or any typography — the previous pass is settled.
 - If an out-of-repo need appears, list it at the end of your response rather than acting on it.
