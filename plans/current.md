@@ -1,141 +1,145 @@
-# Reader edge treatment — how the reading surface meets the top and bottom of the screen
+# Fix resume: remember where the reader actually was
 
 Read `GEMINI.md` first.
 
-## Context
+## Context — the bug, precisely
 
-In the immersive reader the list has `paddingTop: insets.top + space.xxxl` and
-`paddingBottom: space.xxl + insets.bottom`, which is correct **at rest** — the first line starts
-below the clock, the last stops above the home indicator.
+Reopening a book, and the highlighted row on Contents, both come from `resumeChapterId`
+(`storage/prefs.ts`). It returns **the first chapter whose progress is above 0 but below the 0.98
+done threshold** — the earliest chapter left unfinished, not the last one read.
 
-Nothing occupies those regions **during** scroll. So text slides up and collides with the live
-status bar (clock, battery) with no separation at all, and slides off the bottom guillotined
-mid-glyph. `ReaderChrome` covers the top with opaque paper, but only while visible — which in
-immersive reading is never.
+Pressing "Next chapter" on `ChapterEndCard` does not record that the chapter is finished. It only
+saves whatever high-water mark the scroll handler last happened to write. The Next button is
+reachable well before the true bottom of the scroll (the card's own height plus roughly 66pt of
+list padding sit below it), so the chapter is typically left at 0.90–0.97 — under the threshold,
+permanently `in_progress`, and because the rule is *first* in-progress it shadows every chapter
+after it. The reader is dragged back to it on every visit, forever, since progress only ratchets up.
 
-This pass gives both edges a treatment. It also produces a genuinely reusable tier-2 component,
-which is the point of the project.
+It is intermittent, which is why it was hard to pin: overscroll to the real bottom before tapping
+and progress reaches exactly 1, the chapter goes `done`, and resume moves on correctly.
 
-## Decided by the human and not open
+**The human chose to fix both halves:** track the chapter that was actually open, *and* treat
+pressing Next as an explicit completion.
 
-- **Top:** an opaque paper band across the status-bar region, then a **short gradient below it**
-  fading paper to transparent. The clock always sits on clean paper; text dissolves rather than
-  being clipped.
-- **Bottom:** **fade only, and gentler than the top.** Reading runs downward, so a deep bottom fade
-  obscures the line you are about to read and reads as friction. The gradient must reach full paper
-  opacity by the safe-area line, so the home indicator sits on solid paper.
-- **Not decided, do not touch:** whether `ReaderChrome` keeps its hairline bottom border or
-  dissolves into the same gradient. The human will judge that on device once the edges exist.
-  **Leave `ReaderChrome` exactly as it is.**
+Note this is a different bug from the `Math.floor(yOffset / 40)` block-index estimate in the
+reader, which is also wrong but governs scroll position *within* a chapter. **Do not touch that in
+this pass.**
 
-Rejected, for the record, so nobody re-proposes them: blur/material (over flat paper a blur strip
-only smudges the glyphs and reads as a rendering bug — it needs rich content behind it to work);
-hiding the status bar (impossible in an iOS standalone PWA, which is how this app is actually used,
-so it would split native and web behaviour).
+## 1. `storage/progress.ts` — new, pure
 
-## 1. `design/tokens/color.ts` — add `withAlpha`
+Move `CHAPTER_DONE_THRESHOLD`, `ChapterProgress`, `BookPrefs`, `chapterState`,
+`computeBookProgress` and `resumeChapterId` out of `prefs.ts` into a new `storage/progress.ts`.
 
-```ts
-export function withAlpha(hex: string, alpha: number): string
-```
+**It must have no runtime imports** — `import type { Book }` only, which erases. That is the whole
+reason for the split: `prefs.ts` imports `./kv`, which reaches `expo-file-system`, so none of this
+logic can currently be tested in Node. It is the only real logic in the app besides the parser and
+it should be testable without a phone.
 
-Takes `#RRGGBB` (also accept `#RGB`), returns `rgba(r, g, b, alpha)`. Pure, no package imports —
-this file is tier 1 and the guard test enforces that.
+`prefs.ts` re-exports everything it moved, and `storage/index.ts` also exports `./progress`, so no
+consumer import changes anywhere.
 
-**This is not a convenience, it is the whole correctness of the gradient.** A gradient ending at
-`'transparent'` ends at transparent *black*, and the interpolation runs through progressively
-darker semi-transparent greys — you get a visible dirty halo through the middle of the fade,
-worst on a light paper background. The gradient must end at the *same RGB* with alpha `0`.
-
-Add a comment saying exactly that, or someone will "simplify" it back to `'transparent'` later.
-
-## 2. `ui/overlay/EdgeFade.tsx` — new tier-2 component
-
-Absolutely positioned overlay pinned to one edge, painting the surface colour solid at the outer
-edge and fading it out toward the content.
+## 2. `resumeChapterId` — new signature and rule
 
 ```ts
-export type EdgeFadeProps = {
-  edge: 'top' | 'bottom';
-  /** Fully opaque band at the outer edge. Usually the safe-area inset. Defaults to 0. */
-  solidHeight?: number;
-  /** Gradient span between the solid band and the content. */
-  fadeHeight: number;
-  /** Defaults to theme.surface.page. */
-  color?: string;
-  testID?: string;
-};
+export function resumeChapterId(book: Book, prefs: BookPrefs, lastChapterId?: string): string
 ```
 
-Implementation notes:
+In order:
 
-- One `LinearGradient` node, not two views. Colours `[c, c, withAlpha(c, 0)]` with `locations`
-  `[0, solidRatio, 1]` where `solidRatio = solidHeight / (solidHeight + fadeHeight)`. For
-  `edge: 'bottom'` the colour order reverses so the opaque end is at the bottom.
-- Total height is `solidHeight + fadeHeight`. Pin with `position: 'absolute'`, `left: 0`,
-  `right: 0`, and `top: 0` or `bottom: 0`.
-- **`pointerEvents="none"` is mandatory.** The reader toggles its chrome on tap; without this the
-  top ~83pt and bottom ~46pt of the screen become dead to touch, which is a much worse bug than
-  the one this pass is fixing.
-- No hex literals — the default colour comes from `useTheme().surface.page`. The guard test
-  enforces this for everything under `ui/`.
-- Export from `ui/overlay/index.ts` alongside `Sheet` and `CollapsingHeader`.
+1. If `lastChapterId` names a chapter that exists in this book:
+   - not `done` → return it.
+   - `done` → return the first chapter **after** it that is not `done`. If every chapter after it
+     is done, fall through to the rules below rather than returning something already finished.
+2. First `in_progress` chapter.
+3. First `unread` chapter.
+4. The last chapter.
 
-## 3. Wire it into the reader — `app/book/[id]/[chapter].tsx`
+Steps 2–4 are the existing behaviour and must stay as the fallback, so a book read before this
+change still resolves sensibly with no stored pointer.
 
-Two instances at the **screen root**, as siblings of the `GestureDetector` — deliberately *outside*
-`ChapterTransition`. The filmstrip layers must slide underneath a fixed edge treatment; a fade that
-travels with the content would be visibly wrong during a swipe. This also means `ChapterPreview`
-needs no change at all.
+## 3. Last-read pointer — `storage/prefs.ts`
 
-```tsx
-<EdgeFade edge="top" solidHeight={insets.top} fadeHeight={space.xl} />
-<EdgeFade edge="bottom" solidHeight={insets.bottom} fadeHeight={space.md} />
+```ts
+export async function getLastChapter(bookId: string): Promise<string | undefined>
+export function saveLastChapter(bookId: string, chapterId: string): Promise<void>
 ```
 
-`space.xl` (24) against `space.md` (12) is the asymmetry the human chose — do not equalise them.
+Store under its own kv key, `lastread_<bookId>.json`, holding `{ "chapterId": "..." }`.
 
-Z-order: `ReaderChrome` is `zIndex: 10`. Give `EdgeFade` a lower `zIndex` (5) so the chrome covers
-it when visible, while both sit above the list. React Native honours `zIndex` over tree order, so
-placement in JSX is not what decides this — set it explicitly.
+Deliberately a separate key rather than a field inside the prefs file: `BookPrefs` is
+`Record<chapterId, ChapterProgress>` and several consumers index it directly, so adding a non-chapter
+key to that object would need a migration and would make every lookup unsafe. A separate key costs
+one extra read and needs no migration at all.
 
-Add the same two to the loading branch of this screen (the skeleton state around line 195) so the
-edges do not pop into existence when the book finishes loading.
+Tolerate a missing or malformed file by returning `undefined`. Route the write through the same
+`saveChain` promise chain the existing `saveReadingPosition` uses, so writes cannot interleave.
 
-## 4. `app/_dev/gallery.tsx`
+## 4. Reader — `app/book/[id]/[chapter].tsx`
 
-Add an `EdgeFade` section: both edges over a block of real-looking paragraph text, in both themes,
-so the gradient can be checked for banding and for the transparent-black halo described in step 1.
+**Record the open chapter.** In the existing effect keyed on `[currentIndex, book, id]`, after the
+`prevIndexRef` bookkeeping, call `saveLastChapter(id, book.chapters[currentIndex].id)`
+unconditionally. This runs on entry and on every swipe, so the pointer survives the app being
+killed.
 
-## 5. Docs
+**Make Next mean finished.** The `ChapterEndCard`'s `onNext` currently calls
+`transitionRef.current?.advance('next')`. Set `maxProgressRef.current = 1` immediately before that
+call, so the chapter-change effect persists a completed chapter rather than a 0.9-something one.
 
-- `docs/components.md` — a decision-log entry. Record the research (Apple systematised this in
-  iOS 26 as the *scroll edge effect*: blur **and** fade at the top, fade **only** at the bottom —
-  the asymmetry is Apple's too, not an invention here), the reading-direction argument for the
-  gentler bottom, why blur and status-bar-hiding were rejected, and that the chrome hairline
-  question is deliberately still open.
-- `docs/library.md` — `EdgeFade`'s API and `withAlpha`, plus a new entry in "Things that will bite
-  you" for the transparent-black gradient halo.
+Comment it: pressing Next is the reader stating they are done, and inferring completion from scroll
+position instead is what left chapters stuck below the threshold.
+
+**Only that button.** Do not mark done on swipe, and do not mark done on "back to contents" — both
+are ambiguous, and a swipe out of a chapter you are halfway through must stay halfway through.
+
+## 5. Contents — `app/book/[id]/index.tsx`
+
+`loadData` also fetches `getLastChapter(id)` into state; pass it as the third argument to
+`resumeChapterId`. `loadData` already re-runs on focus, so the marker refreshes on return from the
+reader with no other change.
+
+## 6. `test/progress.test.ts` — new
+
+Node tests over the pure module, now that it imports nothing at runtime. Cover at minimum:
+
+- `lastChapterId` names an unfinished chapter → that chapter wins over an earlier in-progress one.
+  **This is the regression test for the reported bug** — build the fixture so chapter 1 sits at 0.94
+  and the pointer names chapter 2, and assert chapter 2 is returned.
+- `lastChapterId` names a finished chapter → the first not-done chapter after it.
+- `lastChapterId` finished and everything after it finished → falls through to the old rules.
+- `lastChapterId` absent, or naming a chapter not in this book → falls through to the old rules.
+- The old rules in isolation: first in-progress, then first unread, then the last chapter.
+- A book with no chapters returns `''` and does not throw.
+- `chapterState` at exactly 0, just under 0.98, exactly 0.98 and 1.
+- `computeBookProgress` weights by word count, not by chapter count, and treats a zero word count
+  as 1 rather than dividing by zero.
+
+Add a `test` script to `package.json` running all four test files, so the suite stops being a
+command that has to be remembered:
+
+```json
+"test": "node --test --experimental-strip-types test/pdf.test.ts test/design.test.ts test/icons.test.ts test/progress.test.ts"
+```
+
+## 7. Docs
+
+- `docs/components.md` — a short note under the reader entries recording why resume was wrong:
+  "first unfinished chapter" is a sticky rule, and completion was being inferred from scroll depth
+  rather than taken from the reader's explicit action.
+- `docs/library.md` — nothing to add. This is all tier 3 and `storage/`, not the reusable library.
 
 ## Gates
 
 - `npx tsc --noEmit`
 - `npm run lint`
-- `node --test --experimental-strip-types test/pdf.test.ts test/design.test.ts test/icons.test.ts`
-  (the design guard must still pass — `withAlpha` in tier 1 with no imports, `EdgeFade` in tier 2
-  with no hex literals)
-- `npx expo export --platform web` followed by `npm run check:web`
-
-`expo-linear-gradient` renders through CSS on react-native-web, so it must work in the PWA too.
-Confirm the export succeeds and report the main bundle size delta.
+- `npm test` (the new script — all four files, and report the count)
+- `npx expo export --platform web` then `npm run check:web`
 
 ## Constraints
 
 - **Do not touch anything outside this project directory.** Do not run `git`, do not commit.
-- **No package installs.** `expo-linear-gradient@~15.0.8` is already installed and is the only new
-  dependency this pass gets. If you believe you need another, stop and say so instead.
-- Do not change `ReaderChrome`, `ChapterTransition`, `ChapterPreview`, `ChapterEndCard`, or any
-  typography. The only behavioural change is the two new overlays.
-- Do not change the existing `paddingTop` / `paddingBottom` on the list. The edge treatment covers
-  scroll; the padding governs rest. They are separate concerns and both are still needed.
+- No package installs.
+- Do not change `Math.floor(yOffset / 40)` or anything about scroll restoration within a chapter.
+- Do not change the 0.98 threshold, the high-water-mark behaviour of `saveReadingPosition`, or the
+  word-weighted `computeBookProgress` formula.
+- Do not change `EdgeFade`, `ReaderChrome`, or any typography — the previous pass is settled.
 - If an out-of-repo need appears, list it at the end of your response rather than acting on it.
