@@ -1,5 +1,7 @@
 import type { Block, TextRun } from './types';
 
+const REPEAT_THRESHOLD = 0.2;
+
 export function runsToBlocks(runs: TextRun[], bodySize?: number): Block[] {
   if (!runs || runs.length === 0) {
     return [];
@@ -13,25 +15,111 @@ export function runsToBlocks(runs: TextRun[], bodySize?: number): Block[] {
   const totalPages = pagesSet.size;
 
   // 1. Strip running headers and footers
-  // Count distinct pages where each rounded Y position appears
-  const yPageMap = new Map<number, Set<number>>();
-  for (const r of runs) {
-    const roundedY = Math.round(r.y * 2) / 2; // 0.5pt rounding
-    let set = yPageMap.get(roundedY);
-    if (!set) {
-      set = new Set<number>();
-      yPageMap.set(roundedY, set);
-    }
-    set.add(r.page);
-  }
+  // A run is stripped only if it meets all three conditions:
+  //   1. Normalised text match: key = str.trim().replace(/\s+/g, ' ').replace(/\d+/g, '#')
+  //   2. At a page extreme: within 30pt of the topmost or bottommost run on its own page
+  //   3. Repeats within its page-parity class: key appears on >20% of pages of the same parity.
+  //
+  // 20%, not a majority. The separation between chrome and prose is enormous and measured: on this
+  // corpus body text never repeats identically at a page extreme at all, while real running headers
+  // sit on 45-50% of pages. A majority bar is a knife-edge in that gap — Royal Road's header lands
+  // on 50.2% of odd pages and 45.4% of even ones, so a >50% rule stripped it from odd pages and left
+  // every even one behind. Anything from 5% to 30% removes exactly the chrome and nothing else.
+  // Circuit-breaker: if the rule would remove >5% of the document's non-space characters,
+  // remove nothing at all to bound the blast radius of silent deletion.
 
-  // Filter out runs that occur at Y coordinates present on >50% of pages (when totalPages > 2)
-  const chromeYThreshold = Math.max(2, totalPages * 0.5);
-  const filteredRuns = runs.filter((r) => {
-    const roundedY = Math.round(r.y * 2) / 2;
-    const pageCountAtY = yPageMap.get(roundedY)?.size ?? 0;
-    return totalPages <= 2 || pageCountAtY <= chromeYThreshold;
-  });
+  let filteredRuns = runs;
+
+  if (totalPages > 2) {
+    // Compute min and max Y per page from the runs themselves
+    const pageExtremes = new Map<number, { min: number; max: number }>();
+    let oddPagesCount = 0;
+    let evenPagesCount = 0;
+    for (const page of pagesSet) {
+      if (page % 2 !== 0) {
+        oddPagesCount++;
+      } else {
+        evenPagesCount++;
+      }
+    }
+
+    for (const r of runs) {
+      const ex = pageExtremes.get(r.page);
+      if (!ex) {
+        pageExtremes.set(r.page, { min: r.y, max: r.y });
+      } else {
+        if (r.y < ex.min) ex.min = r.y;
+        if (r.y > ex.max) ex.max = r.y;
+      }
+    }
+
+    // Count pages per normalized key at page extremes by parity
+    const oddKeyPages = new Map<string, Set<number>>();
+    const evenKeyPages = new Map<string, Set<number>>();
+
+    for (const r of runs) {
+      const key = r.str.trim().replace(/\s+/g, ' ').replace(/\d+/g, '#');
+      if (!key) continue;
+
+      const ex = pageExtremes.get(r.page);
+      if (!ex) continue;
+      const isExtreme = ex.max - r.y <= 30 || r.y - ex.min <= 30;
+      if (!isExtreme) continue;
+
+      if (r.page % 2 !== 0) {
+        let set = oddKeyPages.get(key);
+        if (!set) {
+          set = new Set<number>();
+          oddKeyPages.set(key, set);
+        }
+        set.add(r.page);
+      } else {
+        let set = evenKeyPages.get(key);
+        if (!set) {
+          set = new Set<number>();
+          evenKeyPages.set(key, set);
+        }
+        set.add(r.page);
+      }
+    }
+
+    const isHeaderRun = (r: TextRun): boolean => {
+      const key = r.str.trim().replace(/\s+/g, ' ').replace(/\d+/g, '#');
+      if (!key) return false;
+
+      const ex = pageExtremes.get(r.page);
+      if (!ex) return false;
+      const isExtreme = ex.max - r.y <= 30 || r.y - ex.min <= 30;
+      if (!isExtreme) return false;
+
+      if (r.page % 2 !== 0) {
+        const count = oddKeyPages.get(key)?.size ?? 0;
+        return oddPagesCount > 0 && count > oddPagesCount * REPEAT_THRESHOLD;
+      } else {
+        const count = evenKeyPages.get(key)?.size ?? 0;
+        return evenPagesCount > 0 && count > evenPagesCount * REPEAT_THRESHOLD;
+      }
+    };
+
+    let totalNonSpaceChars = 0;
+    let candidateRemovedChars = 0;
+    for (const r of runs) {
+      const nonSpace = r.str.replace(/\s/g, '').length;
+      totalNonSpaceChars += nonSpace;
+      if (isHeaderRun(r)) {
+        candidateRemovedChars += nonSpace;
+      }
+    }
+
+    // Circuit-breaker: if removing >5% of non-space chars, remove nothing at all and keep every run.
+    // This bounds the blast radius of a rule whose failure mode is silent deletion.
+    const circuitBreakerTripped =
+      totalNonSpaceChars > 0 && candidateRemovedChars / totalNonSpaceChars > 0.05;
+
+    if (!circuitBreakerTripped) {
+      filteredRuns = runs.filter((r) => !isHeaderRun(r));
+    }
+  }
 
   if (filteredRuns.length === 0) {
     return [];

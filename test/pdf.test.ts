@@ -18,25 +18,158 @@ test('bodyFontSize quantizes sizes and picks modal bucket by character count', (
   assert.strictEqual(modalSize, 10.0);
 });
 
-test('runsToBlocks strips running headers repeating at same y across pages', () => {
+const SAMPLE_WORDS = [
+  'alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf', 'hotel',
+  'india', 'juliet', 'kilo', 'lima', 'mike', 'november', 'oscar', 'papa',
+  'quebec', 'romeo', 'sierra', 'tango', 'uniform', 'victor', 'whiskey', 'xray',
+  'yankee', 'zulu', 'autumn', 'breeze', 'cloud', 'dawn', 'ember', 'frost',
+  'glade', 'haven', 'island', 'jungle', 'knoll', 'lagoon', 'meadow', 'nexus',
+  'oasis', 'prairie', 'quarry', 'ridge', 'stream', 'timber', 'upland', 'valley',
+];
+
+function makeUniqueProse(p: number, i: number): string {
+  const w1 = SAMPLE_WORDS[(p * 7 + i * 3) % SAMPLE_WORDS.length];
+  const w2 = SAMPLE_WORDS[(p * 11 + i * 5 + 1) % SAMPLE_WORDS.length];
+  const w3 = SAMPLE_WORDS[(p * 13 + i * 7 + 2) % SAMPLE_WORDS.length];
+  const w4 = SAMPLE_WORDS[(p * 17 + i * 11 + 3) % SAMPLE_WORDS.length];
+  return `The ${w1} ${w2} was observed near the ${w3} and ${w4} during the expedition.`;
+}
+
+test('runsToBlocks: baseline-grid book with no headers keeps every run', () => {
   const runs: TextRun[] = [];
 
-  // Create 10 pages with recurring header at y=750
+  // 10 pages, 20 lines each, identical set of y values across pages, distinct text on each
   for (let p = 1; p <= 10; p++) {
-    // Header
+    for (let i = 0; i < 20; i++) {
+      runs.push({
+        str: makeUniqueProse(p, i),
+        x: 50,
+        y: 700 - i * 25,
+        size: 10,
+        fontName: 'Helvetica',
+        page: p,
+      });
+    }
+  }
+
+  const blocks = runsToBlocks(runs);
+  const paraBlocks = blocks.filter((b): b is Extract<Block, { type: 'paragraph' }> => b.type === 'paragraph');
+  const allText = paraBlocks.map((b) => b.text).join(' ');
+
+  for (let p = 1; p <= 10; p++) {
+    for (let i = 0; i < 20; i++) {
+      assert.ok(
+        allText.includes(makeUniqueProse(p, i)),
+        `Page ${p} line ${i} must survive`
+      );
+    }
+  }
+});
+
+test('runsToBlocks: recto/verso running header is stripped and all body text survives', () => {
+  const runs: TextRun[] = [];
+
+  // 10 pages: odd pages have "Book Title", even pages have "Author Name" at top y
+  for (let p = 1; p <= 10; p++) {
+    const isOdd = p % 2 !== 0;
     runs.push({
-      str: 'The Royal Road to Card Magic',
+      str: isOdd ? 'Book Title' : 'Author Name',
       x: 100,
       y: 750,
-      size: 14,
+      size: 12,
       fontName: 'Helvetica',
       page: p,
     });
-    // Body
+
+    for (let i = 0; i < 20; i++) {
+      runs.push({
+        str: makeUniqueProse(p, i),
+        x: 50,
+        y: 700 - i * 25,
+        size: 10,
+        fontName: 'Helvetica',
+        page: p,
+      });
+    }
+  }
+
+  const blocks = runsToBlocks(runs);
+  const paraBlocks = blocks.filter((b): b is Extract<Block, { type: 'paragraph' }> => b.type === 'paragraph');
+  const allText = paraBlocks.map((b) => b.text).join(' ');
+
+  assert.ok(!allText.includes('Book Title'), 'Odd page header "Book Title" should be stripped');
+  assert.ok(!allText.includes('Author Name'), 'Even page header "Author Name" should be stripped');
+
+  for (let p = 1; p <= 10; p++) {
+    for (let i = 0; i < 20; i++) {
+      assert.ok(
+        allText.includes(makeUniqueProse(p, i)),
+        `Page ${p} line ${i} body text must survive`
+      );
+    }
+  }
+});
+
+test('runsToBlocks: page numbers in footer are stripped and body text survives', () => {
+  const runs: TextRun[] = [];
+
+  // 10 pages: footer "Page 1", "Page 2", ... at bottom extreme
+  for (let p = 1; p <= 10; p++) {
+    for (let i = 0; i < 20; i++) {
+      runs.push({
+        str: makeUniqueProse(p, i),
+        x: 50,
+        y: 700 - i * 25,
+        size: 10,
+        fontName: 'Helvetica',
+        page: p,
+      });
+    }
+
     runs.push({
-      str: `This is page ${p} body text content.`,
+      str: `Page ${p}`,
+      x: 200,
+      y: 100,
+      size: 9,
+      fontName: 'Helvetica',
+      page: p,
+    });
+  }
+
+  const blocks = runsToBlocks(runs);
+  const paraBlocks = blocks.filter((b): b is Extract<Block, { type: 'paragraph' }> => b.type === 'paragraph');
+  const allText = paraBlocks.map((b) => b.text).join(' ');
+
+  for (let p = 1; p <= 10; p++) {
+    // Assert page number footer is stripped
+    assert.ok(!allText.includes(`Page ${p}`), `Footer "Page ${p}" should be stripped`);
+    // Assert body lines survived
+    for (let i = 0; i < 20; i++) {
+      assert.ok(
+        allText.includes(makeUniqueProse(p, i)),
+        `Page ${p} line ${i} body text must survive`
+      );
+    }
+  }
+});
+
+test('runsToBlocks: circuit-breaker keeps every run when filter would remove >5% of characters', () => {
+  const runs: TextRun[] = [];
+
+  // 10 pages: header with 41 chars, small body with 7 chars (~85% would be removed)
+  for (let p = 1; p <= 10; p++) {
+    runs.push({
+      str: 'Recurring Header That Takes Up Many Chars',
+      x: 100,
+      y: 750,
+      size: 12,
+      fontName: 'Helvetica',
+      page: p,
+    });
+    runs.push({
+      str: `Body ${p}.`,
       x: 50,
-      y: 500 - p,
+      y: 500,
       size: 10,
       fontName: 'Helvetica',
       page: p,
@@ -44,11 +177,15 @@ test('runsToBlocks strips running headers repeating at same y across pages', () 
   }
 
   const blocks = runsToBlocks(runs);
-  const headerBlocks = blocks.filter(
-    (b) => b.type === 'paragraph' && b.text.includes('The Royal Road')
-  );
+  const paraBlocks = blocks.filter((b): b is Extract<Block, { type: 'paragraph' }> => b.type === 'paragraph');
+  const allText = paraBlocks.map((b) => b.text).join(' ');
 
-  assert.strictEqual(headerBlocks.length, 0, 'Header text should be stripped');
+  // Circuit breaker must have tripped and preserved the header
+  assert.ok(
+    allText.includes('Recurring Header That Takes Up Many Chars'),
+    'Circuit breaker should keep all runs when removal threshold is exceeded'
+  );
+  assert.ok(allText.includes('Body 1.'), 'Body text should survive');
 });
 
 test('runsToBlocks de-hyphenates lower-case continuation and keeps hyphens otherwise', () => {
