@@ -7,6 +7,8 @@ import {
   NativeSyntheticEvent,
   StyleSheet,
   View,
+  type ViewToken,
+  type ViewabilityConfig,
 } from 'react-native';
 import Animated, { runOnJS, useSharedValue } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -108,11 +110,39 @@ export default function ReaderScreen() {
 
   const prevIndexRef = useRef<number | null>(null);
   const maxProgressRef = useRef<number>(0);
-  const maxBlockIndexRef = useRef<number>(0);
+  const blockIndexRef = useRef<number>(0);
   const contentHeightRef = useRef<number>(0);
   const layoutHeightRef = useRef<number>(0);
   const isScrollableRef = useRef<boolean>(false);
   const hasMeasuredRef = useRef<boolean>(false);
+
+  // 1, not 0. React Native's predicate is `percent >= threshold`, and an item scrolled entirely
+  // off screen has zero visible pixels, so at a threshold of 0 it still passes — every rendered
+  // item is reported viewable and the minimum index below becomes the start of the render window
+  // rather than the topmost visible block. 1 means "any meaningful sliver", which is what this
+  // wants: restoring a block early costs a re-read, restoring late silently skips one.
+  const viewabilityConfigRef = useRef<ViewabilityConfig>({
+    itemVisiblePercentThreshold: 1,
+  });
+
+  // Stable for the list's lifetime — React Native throws on a changing onViewableItemsChanged.
+  // It therefore cannot close over `id` or `chapter`, which change on every swipe; it writes to a
+  // ref and the existing save paths persist it.
+  const onViewableItemsChangedRef = useRef(
+    (info: { viewableItems: ViewToken[] }) => {
+      let minIndex: number | null = null;
+      for (const token of info.viewableItems) {
+        if (token.index !== null && token.index !== undefined) {
+          if (minIndex === null || token.index < minIndex) {
+            minIndex = token.index;
+          }
+        }
+      }
+      if (minIndex !== null) {
+        blockIndexRef.current = minIndex;
+      }
+    }
+  );
 
   // The book is read from disk exactly once. Paging between chapters must not re-enter this —
   // every chapter is already in `book.chapters`, and re-fetching would put a disk read and a
@@ -137,7 +167,7 @@ export default function ReaderScreen() {
           getReadingPosition(id, foundChapter.id).then((pos) => {
             setInitialIndex(pos.blockIndex);
             maxProgressRef.current = pos.progress;
-            maxBlockIndexRef.current = pos.blockIndex;
+            blockIndexRef.current = pos.blockIndex;
           });
         }
       }
@@ -153,11 +183,11 @@ export default function ReaderScreen() {
         if (hasMeasuredRef.current && !isScrollableRef.current) {
           maxProgressRef.current = 1;
         }
-        saveReadingPosition(id, prevChapter.id, maxBlockIndexRef.current, maxProgressRef.current);
+        saveReadingPosition(id, prevChapter.id, blockIndexRef.current, maxProgressRef.current);
       }
 
       maxProgressRef.current = 0;
-      maxBlockIndexRef.current = 0;
+      blockIndexRef.current = 0;
       contentHeightRef.current = 0;
       layoutHeightRef.current = 0;
       isScrollableRef.current = false;
@@ -184,7 +214,7 @@ export default function ReaderScreen() {
           maxProgressRef.current = 1;
         }
 
-        saveReadingPosition(id, activeChapter.id, maxBlockIndexRef.current, maxProgressRef.current);
+        saveReadingPosition(id, activeChapter.id, blockIndexRef.current, maxProgressRef.current);
       };
     }, [id, currentIndex, book])
   );
@@ -250,19 +280,15 @@ export default function ReaderScreen() {
       hasMeasuredRef.current = true;
     }
 
-    const blockIndex = Math.max(0, Math.floor(yOffset / 40));
     const maxScroll = contentSize.height - layoutMeasurement.height;
     const progress = maxScroll > 0 ? Math.min(1, Math.max(0, yOffset / maxScroll)) : 1;
 
     if (progress > maxProgressRef.current) {
       maxProgressRef.current = progress;
     }
-    if (blockIndex > maxBlockIndexRef.current) {
-      maxBlockIndexRef.current = blockIndex;
-    }
 
     if (id && chapter) {
-      saveReadingPosition(id, chapter.id, maxBlockIndexRef.current, maxProgressRef.current);
+      saveReadingPosition(id, chapter.id, blockIndexRef.current, maxProgressRef.current);
     }
   };
 
@@ -375,12 +401,16 @@ export default function ReaderScreen() {
                 />
               }
               initialScrollIndex={
-                initialIndex && initialIndex < displayBlocks.length ? initialIndex : undefined
+                initialIndex !== null && initialIndex > 0 && initialIndex < displayBlocks.length
+                  ? initialIndex
+                  : undefined
               }
               onScroll={autoHide.scrollHandler}
               scrollEventThrottle={16}
               onScrollEndDrag={handleScroll}
               onMomentumScrollEnd={handleScroll}
+              onViewableItemsChanged={onViewableItemsChangedRef.current}
+              viewabilityConfig={viewabilityConfigRef.current}
               onContentSizeChange={handleContentSizeChange}
               onLayout={handleLayout}
               onScrollToIndexFailed={(info) => {

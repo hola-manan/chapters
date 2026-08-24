@@ -5,8 +5,10 @@ import {
   CHAPTER_DONE_THRESHOLD,
   chapterState,
   computeBookProgress,
+  mergeChapterProgress,
   resumeChapterId,
   type BookPrefs,
+  type ChapterProgress,
 } from '../storage/progress.ts';
 
 function createMockBook(chapterSpecs: Array<{ id: string; wordCount?: number }>): Book {
@@ -197,3 +199,65 @@ test('computeBookProgress: weights by word count, not chapter count, and treats 
   const emptyBook = createMockBook([]);
   assert.strictEqual(computeBookProgress(emptyBook, {}), 0);
 });
+
+test('mergeChapterProgress: no existing entry takes incoming as-is', () => {
+  const result = mergeChapterProgress(undefined, { blockIndex: 5, progress: 0.4 });
+  assert.deepStrictEqual(result, { blockIndex: 5, progress: 0.4 });
+});
+
+test('mergeChapterProgress: higher incoming progress wins; lower incoming progress does not lower stored value', () => {
+  // Higher incoming progress wins
+  const higher = mergeChapterProgress(
+    { blockIndex: 1, progress: 0.2 },
+    { blockIndex: 4, progress: 0.6 }
+  );
+  assert.strictEqual(higher.progress, 0.6);
+
+  // Lower incoming progress does not lower stored value
+  const lower = mergeChapterProgress(
+    { blockIndex: 4, progress: 0.6 },
+    { blockIndex: 2, progress: 0.3 }
+  );
+  assert.strictEqual(lower.progress, 0.6);
+});
+
+test('mergeChapterProgress: lower incoming blockIndex does replace higher stored one (pointer vs watermark regression)', () => {
+  const existing: ChapterProgress = { blockIndex: 12, progress: 0.8 };
+  const incoming: ChapterProgress = { blockIndex: 3, progress: 0.4 };
+  const merged = mergeChapterProgress(existing, incoming);
+
+  // Pointer moves backwards to where the reader actually is, while progress ratchet is preserved
+  assert.strictEqual(merged.blockIndex, 3, 'Lower incoming blockIndex must replace higher stored blockIndex');
+  assert.strictEqual(merged.progress, 0.8, 'Progress high-water mark must remain intact');
+});
+
+test('mergeChapterProgress: progress clamps into 0..1 from out-of-range input on both sides', () => {
+  assert.deepStrictEqual(
+    mergeChapterProgress(undefined, { blockIndex: 0, progress: -0.5 }),
+    { blockIndex: 0, progress: 0 }
+  );
+  assert.deepStrictEqual(
+    mergeChapterProgress(undefined, { blockIndex: 0, progress: 1.5 }),
+    { blockIndex: 0, progress: 1 }
+  );
+  assert.deepStrictEqual(
+    mergeChapterProgress({ blockIndex: 0, progress: 0.5 }, { blockIndex: 0, progress: -0.2 }),
+    { blockIndex: 0, progress: 0.5 }
+  );
+  assert.deepStrictEqual(
+    mergeChapterProgress({ blockIndex: 0, progress: 0.5 }, { blockIndex: 0, progress: 2.0 }),
+    { blockIndex: 0, progress: 1 }
+  );
+});
+
+test('mergeChapterProgress: negative blockIndex clamps to 0', () => {
+  assert.deepStrictEqual(
+    mergeChapterProgress(undefined, { blockIndex: -10, progress: 0.5 }),
+    { blockIndex: 0, progress: 0.5 }
+  );
+  assert.deepStrictEqual(
+    mergeChapterProgress({ blockIndex: 5, progress: 0.5 }, { blockIndex: -3, progress: 0.5 }),
+    { blockIndex: 0, progress: 0.5 }
+  );
+});
+

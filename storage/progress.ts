@@ -9,6 +9,21 @@ export type ChapterProgress = {
 
 export type BookPrefs = Record<string, ChapterProgress>;
 
+export function mergeChapterProgress(
+  existing: ChapterProgress | undefined,
+  incoming: ChapterProgress
+): ChapterProgress {
+  const existingProg = existing?.progress ?? 0;
+  const maxProg = Math.max(existingProg, incoming.progress);
+  const clampedProg = Math.min(1, Math.max(0, maxProg));
+  const clampedBlockIndex = Math.max(0, incoming.blockIndex);
+
+  return {
+    progress: clampedProg,
+    blockIndex: clampedBlockIndex,
+  };
+}
+
 export function chapterState(progress: number): 'unread' | 'in_progress' | 'done' {
   if (progress <= 0) return 'unread';
   if (progress >= CHAPTER_DONE_THRESHOLD) return 'done';

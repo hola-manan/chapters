@@ -1,5 +1,5 @@
 import { readText, writeText } from './kv';
-import type { BookPrefs, ChapterProgress } from './progress.ts';
+import { mergeChapterProgress, type BookPrefs, type ChapterProgress } from './progress.ts';
 
 export * from './progress.ts';
 
@@ -47,21 +47,8 @@ export function saveReadingPosition(
       const key = getPrefsKey(bookId);
       const prefs = await getBookPrefs(bookId);
 
-      const clampedProgress = Math.min(1, Math.max(0, progress));
       const existing = prefs[chapterId];
-      const existingProgress = existing?.progress ?? 0;
-      const existingBlockIndex = existing?.blockIndex ?? 0;
-
-      const finalProgress = Math.max(existingProgress, clampedProgress);
-      const finalBlockIndex =
-        existingProgress > clampedProgress
-          ? existingBlockIndex
-          : Math.max(existingBlockIndex, blockIndex);
-
-      prefs[chapterId] = {
-        blockIndex: finalBlockIndex,
-        progress: finalProgress,
-      };
+      prefs[chapterId] = mergeChapterProgress(existing, { blockIndex, progress });
 
       await writeText(key, JSON.stringify(prefs));
     })
