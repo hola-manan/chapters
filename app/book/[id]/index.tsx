@@ -7,7 +7,7 @@ import { space } from '../../../design';
 import { ChapterRow, ContentsHeader } from '../../../features';
 import { displayTitle } from '../../../pdf';
 import type { Book } from '../../../pdf/types';
-import { getBook, getBookPrefs, resumeChapterId, type BookPrefs } from '../../../storage';
+import { getBook, getBookPrefs, getLastChapter, resumeChapterId, type BookPrefs } from '../../../storage';
 import { CollapsingHeader, SkeletonText, useScrollY, useTheme } from '../../../ui';
 
 export default function ContentsScreen() {
@@ -19,14 +19,17 @@ export default function ContentsScreen() {
 
   const [book, setBook] = useState<Book | null>(null);
   const [prefs, setPrefs] = useState<BookPrefs>({});
+  const [lastChapterId, setLastChapterId] = useState<string | undefined>(undefined);
   const [collapseDistance, setCollapseDistance] = useState(48);
 
   const loadData = useCallback(async () => {
     if (id) {
       const loadedBook = await getBook(id);
       const loadedPrefs = await getBookPrefs(id);
+      const loadedLastChapter = await getLastChapter(id);
       setBook(loadedBook);
       setPrefs(loadedPrefs);
+      setLastChapterId(loadedLastChapter);
     }
   }, [id]);
 
@@ -41,7 +44,7 @@ export default function ContentsScreen() {
   );
 
   const effectiveTitle = book ? book.title : (initialTitle ?? '');
-  const targetChapterId = book ? resumeChapterId(book, prefs) : undefined;
+  const targetChapterId = book ? resumeChapterId(book, prefs, lastChapterId) : undefined;
 
   const renderHeader = () => (
     <ContentsHeader

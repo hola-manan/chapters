@@ -26,7 +26,7 @@ import {
 } from '../../../features';
 import { displayTitle } from '../../../pdf';
 import type { Book } from '../../../pdf/types';
-import { getBook, getReadingPosition, saveReadingPosition } from '../../../storage';
+import { getBook, getReadingPosition, saveLastChapter, saveReadingPosition } from '../../../storage';
 import { EmptyState, EdgeFade, SkeletonText, useAutoHide, useReadingSize, useTheme, useThemeMode } from '../../../ui';
 
 // Relative pinch travel that commits one size step. Small enough to feel responsive, large enough
@@ -166,6 +166,11 @@ export default function ReaderScreen() {
     }
 
     prevIndexRef.current = currentIndex;
+
+    const activeChapter = book.chapters[currentIndex];
+    if (activeChapter) {
+      saveLastChapter(id, activeChapter.id);
+    }
   }, [currentIndex, book, id]);
 
   useFocusEffect(
@@ -349,7 +354,12 @@ export default function ReaderScreen() {
                   bookTitle={book.title}
                   onNext={
                     nextChapter
-                      ? () => transitionRef.current?.advance('next')
+                      ? () => {
+                          // Pressing Next is the reader stating they are done; inferring completion from scroll
+                          // position instead is what left chapters stuck below the threshold.
+                          maxProgressRef.current = 1;
+                          transitionRef.current?.advance('next');
+                        }
                       : undefined
                   }
                   onBackToContents={() => router.replace(`/book/${book.id}`)}

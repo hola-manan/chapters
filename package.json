@@ -8,6 +8,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "test": "node --test --experimental-strip-types test/pdf.test.ts test/design.test.ts test/icons.test.ts test/progress.test.ts",
     "icons": "node scripts/generate-icons.mjs",
     "check:web": "node scripts/check-web-bundle.mjs"
   },

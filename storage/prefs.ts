@@ -1,17 +1,14 @@
-import type { Book } from '../pdf/types.ts';
 import { readText, writeText } from './kv';
+import type { BookPrefs, ChapterProgress } from './progress.ts';
 
-export const CHAPTER_DONE_THRESHOLD = 0.98;
-
-export type ChapterProgress = {
-  blockIndex: number;
-  progress: number; // 0..1
-};
-
-export type BookPrefs = Record<string, ChapterProgress>;
+export * from './progress.ts';
 
 function getPrefsKey(bookId: string): string {
   return `prefs_${bookId}.json`;
+}
+
+function getLastReadKey(bookId: string): string {
+  return `lastread_${bookId}.json`;
 }
 
 export async function getBookPrefs(bookId: string): Promise<BookPrefs> {
@@ -83,45 +80,30 @@ export async function getReadingPosition(
   return prefs[chapterId] ?? { blockIndex: 0, progress: 0 };
 }
 
-export function chapterState(progress: number): 'unread' | 'in_progress' | 'done' {
-  if (progress <= 0) return 'unread';
-  if (progress >= CHAPTER_DONE_THRESHOLD) return 'done';
-  return 'in_progress';
-}
-
-export function computeBookProgress(book: Book, prefs: BookPrefs): number {
-  if (!book.chapters || book.chapters.length === 0) return 0;
-
-  let totalWords = 0;
-  let weightedProgressSum = 0;
-
-  for (const ch of book.chapters) {
-    const wCount = ch.wordCount > 0 ? ch.wordCount : 1;
-    const prog = prefs[ch.id]?.progress ?? 0;
-    const clampedProg = Math.min(1, Math.max(0, prog));
-    totalWords += wCount;
-    weightedProgressSum += wCount * clampedProg;
+export async function getLastChapter(bookId: string): Promise<string | undefined> {
+  const key = getLastReadKey(bookId);
+  try {
+    const content = await readText(key);
+    if (!content) return undefined;
+    const raw = JSON.parse(content) as { chapterId?: unknown };
+    if (typeof raw?.chapterId === 'string' && raw.chapterId.length > 0) {
+      return raw.chapterId;
+    }
+    return undefined;
+  } catch {
+    return undefined;
   }
-
-  if (totalWords <= 0) return 0;
-  return Math.min(1, Math.max(0, weightedProgressSum / totalWords));
 }
 
-export function resumeChapterId(book: Book, prefs: BookPrefs): string {
-  if (!book.chapters || book.chapters.length === 0) return '';
+export function saveLastChapter(bookId: string, chapterId: string): Promise<void> {
+  saveChain = saveChain
+    .then(async () => {
+      const key = getLastReadKey(bookId);
+      await writeText(key, JSON.stringify({ chapterId }));
+    })
+    .catch((err) => {
+      console.warn('Failed to save last chapter:', err);
+    });
 
-  // 1. First chapter in progress
-  const firstInProgress = book.chapters.find(
-    (ch) => chapterState(prefs[ch.id]?.progress ?? 0) === 'in_progress'
-  );
-  if (firstInProgress) return firstInProgress.id;
-
-  // 2. Else first unread chapter
-  const firstUnread = book.chapters.find(
-    (ch) => chapterState(prefs[ch.id]?.progress ?? 0) === 'unread'
-  );
-  if (firstUnread) return firstUnread.id;
-
-  // 3. Else last chapter
-  return book.chapters[book.chapters.length - 1].id;
+  return saveChain;
 }
